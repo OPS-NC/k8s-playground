@@ -12,7 +12,7 @@
 # ⚠️ CNPG ≤ 1.30 : l'in-tree `barmanObjectStore` marche mais est DÉPRÉCIÉ (retrait prévu en
 #    1.31). Migration future : Barman Cloud Plugin (CNPG-I). Voir README.
 #
-# Prérequis : addon minio-s3/cluster déployé + cluster pg-demo UP. À lancer depuis la racine du dépôt.
+# Prérequis : addon minio-s3/cluster déployé + cluster pg-demo UP.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

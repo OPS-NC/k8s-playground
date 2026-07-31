@@ -12,7 +12,6 @@
 #
 # Prérequis : plateforme en place (main-gateway HTTPS + cert wildcard cert-manager).
 # Idempotent : `helm upgrade --install` + `kubectl apply`. Relançable sans casse.
-# À lancer depuis la racine du dépôt : ./argocd/argocd-up.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +20,6 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 k8s_init "$@"
 
 ARGOCD_VERSION="${ARGOCD_VERSION:-10.2.2}"
-
 
 need kubectl helm
 exiger_apiserver

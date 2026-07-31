@@ -12,7 +12,6 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${HERE}/../../lib/common.sh"
 k8s_init "$@"
 
-
 need kubectl
 exiger_apiserver
 exiger_sc local-path

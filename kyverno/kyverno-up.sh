@@ -10,7 +10,6 @@
 #   4. HTTPRoute          expose l'UI sous kyverno.$LAB_DOMAIN (main-gateway)
 #
 # Idempotent : `helm upgrade --install` + `kubectl apply`. Relançable sans casse.
-# À lancer depuis la racine du dépôt : ./kyverno/kyverno-up.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +20,6 @@ k8s_init "$@"
 # --- Versions épinglées (overridables par variable d'env) -------------------
 KYVERNO_VERSION="${KYVERNO_VERSION:-3.8.2}"            # app v1.18.2
 POLICY_REPORTER_VERSION="${POLICY_REPORTER_VERSION:-3.9.1}"
-
 
 # --- Pré-requis -------------------------------------------------------------
 need kubectl helm

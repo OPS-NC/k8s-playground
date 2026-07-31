@@ -11,7 +11,6 @@
 #
 # Prérequis : Longhorn installé (StorageClass `longhorn`), cf. longhorn/.
 # Idempotent : `helm upgrade --install` + `kubectl apply`. Relançable sans casse.
-# À lancer depuis la racine du dépôt : ./cloudnative-pg/cloudnative-pg-up.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

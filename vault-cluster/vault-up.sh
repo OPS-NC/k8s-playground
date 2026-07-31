@@ -20,7 +20,6 @@
 #
 # Prérequis : Longhorn (SC `longhorn`), plateforme en place (main-gateway + wildcard), jq.
 # Idempotent : n'initialise que si Vault ne l'est pas, ne descelle que les pods scellés.
-# À lancer depuis la racine du dépôt : ./vault-cluster/vault-up.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

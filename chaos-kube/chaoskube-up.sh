@@ -17,7 +17,6 @@
 #
 # Prérequis : cluster Ready, kubectl + helm. Aucun stockage, aucun Gateway.
 # Idempotent : `helm upgrade --install`, relançable sans casse.
-# À lancer depuis la racine du dépôt : ./chaos-kube/chaoskube-up.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -5,14 +5,12 @@
 #
 # Identifiants : MINIO_ROOT_USER (défaut admin) + MINIO_ROOT_PASSWORD (défaut : généré).
 # Idempotent : le Secret n'est PAS écrasé s'il existe déjà (le mot de passe reste stable).
-# À lancer depuis la racine du dépôt : ./minio-s3/minio-up.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/common.sh
 . "${HERE}/../lib/common.sh"
 k8s_init "$@"
-
 
 need kubectl
 exiger_apiserver

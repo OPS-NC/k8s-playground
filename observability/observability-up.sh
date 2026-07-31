@@ -34,7 +34,6 @@ KPS_VERSION="${KPS_VERSION:-88.0.1}"          # kube-prometheus-stack (app Prome
 LOKI_VERSION="${LOKI_VERSION:-7.2.0}"          # app Loki v3.6.11
 ALLOY_VERSION="${ALLOY_VERSION:-1.11.0}"       # app Alloy v1.18.0
 
-
 need kubectl helm
 exiger_apiserver
 exiger_sc longhorn-r1

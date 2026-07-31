@@ -18,7 +18,6 @@
 #
 # Prérequis : l'addon kyverno/ doit être installé (Policy Reporter fournit l'UI).
 # Idempotent : `helm upgrade --install`. Relançable sans casse.
-# À lancer depuis la racine du dépôt : ./trivy-operator/trivy-operator-up.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,7 +28,6 @@ k8s_init "$@"
 # --- Versions épinglées (overridables par variable d'env) -------------------
 TRIVY_OPERATOR_VERSION="${TRIVY_OPERATOR_VERSION:-0.34.0}"        # app v0.32.0
 POLICY_REPORTER_VERSION="${POLICY_REPORTER_VERSION:-3.9.1}"
-
 
 need kubectl helm
 exiger_apiserver

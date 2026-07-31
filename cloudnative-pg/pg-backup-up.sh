@@ -12,7 +12,7 @@
 #    est justement de sauvegarder AVEC les creds Vault. Voir README pour l'alternative CNPG-native.
 #
 # Prérequis : addon minio-s3/cluster déployé, rotation Vault en place (pg-rotate-creds présent),
-# cluster pg-demo UP. À lancer depuis la racine du dépôt.
+# cluster pg-demo UP.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
