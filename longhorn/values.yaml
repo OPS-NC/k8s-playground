@@ -1,0 +1,21 @@
+# Valeurs Helm Longhorn adaptées aux labs Talos / kubeadm.
+defaultSettings:
+  # Où vivent les données, selon la distribution :
+  #   kubeadm : /var/lib/longhorn est un simple dossier du système de fichiers racine de la
+  #     VM (le Vagrantfile n'attache AUCUN disque supplémentaire) → Longhorn partage le
+  #     disque de la box avec l'OS et les images conteneurs ;
+  #   Talos   : /var/lib/longhorn vit sur la partition EPHEMERAL (persistante aux reboots,
+  #     PAS à un reset/reinstall sans --preserve), sur un disque d'install de ~20 Go lui
+  #     aussi PARTAGÉ avec l'OS.
+  # Dans les deux cas → surveiller `DiskPressure`. Pour du vrai stockage, attacher un disque
+  # dédié et le monter (cf. README, section « Disque dédié » ; /var/mnt/longhorn sur Talos).
+  defaultDataPath: /var/lib/longhorn
+  # Nb de réplicas = nb de nodes de stockage disponibles. `longhorn-up.sh` surcharge cette
+  # valeur avec le nombre de workers RÉELLEMENT présents dans le cluster (plafonné à 3) —
+  # lab.env.example livre WORKERS=2, donc 2 en pratique. À la main, BAISSER à 1 ou 2 avec
+  # moins de 3 workers, sinon les volumes restent « Degraded » à vie.
+  defaultReplicaCount: 3
+persistence:
+  # StorageClass `longhorn` posée par défaut du cluster.
+  defaultClass: true
+  defaultClassReplicaCount: 3

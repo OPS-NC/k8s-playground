@@ -1,0 +1,17 @@
+# Namespace de la pile d'observabilité.
+#
+# PodSecurity `privileged` : requis par node-exporter (hostNetwork/hostPID/hostPath/hostPort)
+# ET par Alloy (hostPath /var/log/pods pour lire les logs).
+# Sur Talos, le défaut cluster est `baseline` : ces étiquettes sont INDISPENSABLES, sans
+# elles les pods sont refusés. Sur kubeadm, aucun niveau PodSecurity n'est appliqué par
+# défaut : elles ne changent rien aujourd'hui, mais elles documentent l'intention et
+# gardent le namespace fonctionnel si l'admission est durcie plus tard
+# (--admission-control-config-file sur l'apiserver).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

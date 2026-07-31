@@ -1,0 +1,16 @@
+# Schematic Talos Image Factory : un installeur incluant les extensions requises
+# par Longhorn. Talos ne permet plus d'ajouter des extensions à chaud : elles sont
+# baked dans l'image d'installeur, posée via machine.install.image (cf. patch-longhorn.yaml).
+#
+#   - siderolabs/iscsi-tools     : iscsid + iscsiadm (montage des volumes Longhorn)
+#   - siderolabs/util-linux-tools: fstrim (trim des volumes)
+#
+# Générer l'ID de schematic puis la référence d'installeur (jq requis) :
+#   SCHEMATIC_ID=$(curl -sX POST --data-binary @longhorn/schematic.yaml \
+#     https://factory.talos.dev/schematics -H "Content-Type: application/yaml" | jq -r .id)
+#   echo "factory.talos.dev/installer/${SCHEMATIC_ID}:v1.13.7"   # = TALOS_VERSION (lab.env)
+customization:
+  systemExtensions:
+    officialExtensions:
+      - siderolabs/iscsi-tools
+      - siderolabs/util-linux-tools

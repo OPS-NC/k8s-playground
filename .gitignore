@@ -1,0 +1,19 @@
+# --- Fichiers propres au lab (jamais versionnés) ---------------------------
+# Ce dépôt ne contient que des ressources Kubernetes GÉNÉRIQUES. Tout ce qui décrit
+# un lab précis (domaine réel, tokens, kubeconfig, certificats) vit dans le dépôt
+# Vagrant correspondant — mais on garde ces motifs au cas où un lab.env local
+# serait déposé ici pour un test.
+lab.env
+_out/
+kubeconfig
+talosconfig
+
+# --- Sorties temporaires ---------------------------------------------------
+*.tmp
+*.rendered.yaml
+
+# --- Addons locaux non versionnés -----------------------------------------
+databasement/
+
+# --- Système ---------------------------------------------------------------
+.DS_Store

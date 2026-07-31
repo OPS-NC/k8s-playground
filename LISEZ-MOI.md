@@ -1,0 +1,290 @@
+<!-- i18n -->
+[English](README.md) · **Français**
+<!-- /i18n -->
+
+# ☸️ k8s-playground — les ressources Kubernetes des labs Talos **et** kubeadm
+
+> **Un seul dépôt de manifestes et de charts pour deux labs Vagrant.** La couche
+> applicative (CNI, Gateway API, stockage, secrets, observabilité, sécurité) était dupliquée
+> dans `Vagrant-Talos/_k8s/` et `Vagrant-KubeADM/_k8s/`. Elle vit maintenant ici, **une seule
+> fois**, et la distribution cible devient un **argument** :
+>
+> ```bash
+> ./install.sh talos platform          # sur le cluster Talos
+> ./install.sh kubeadm platform        # sur le cluster kubeadm/Debian 13
+> ```
+
+Les deux labs restent responsables du **bootstrap du cluster** (VM, OS, `kubeadm init` /
+`talosctl bootstrap`). Ce dépôt ne s'occupe que de ce qui vient **après**, avec `kubectl` et
+`helm` depuis l'hôte — **y compris le CNI**, car aucun des deux bootstraps ne laisse un réseau
+pod utilisable.
+
+## ⚡ Démarrage rapide
+
+```bash
+# 1. Monter le cluster depuis le lab correspondant (dépôt voisin)
+cd ../Vagrant-Talos    && ./talos/cluster-up.sh        # ou
+cd ../Vagrant-KubeADM  && ./kubeadm/cluster-up.sh
+
+# 2. Revenir ici et poser la plateforme de base
+cd ../k8s-playground
+./install.sh talos platform          # CNI → Envoy Gateway → metrics-server → wildcard TLS
+
+# 3. Les addons, à la carte
+./install.sh talos longhorn vault argocd
+./install.sh talos list              # le catalogue complet
+./install.sh talos all               # plateforme + tous les addons, dans le bon ordre
+```
+
+Chaque composant reste **lançable seul**, avec la distribution en argument :
+
+```bash
+./longhorn/longhorn-up.sh talos
+./observability/observability-up.sh kubeadm
+```
+
+> 🎓 **Mode formation.** Chaque dossier a un `README.md` (EN) / `LISEZ-MOI.md` (FR) avec la
+> section **« Pas à pas guidé »** : la même installation, mais **commande par commande**, avec
+> ce qu'il faut observer à chaque étape et les variantes propres à chaque distribution. Le
+> script « tout-en-un » et le pas-à-pas font strictement la même chose.
+
+## 🎯 Comment la distribution est choisie
+
+Par ordre de priorité :
+
+| # | Source | Exemple |
+|---|---|---|
+| 1 | 1er argument positionnel | `./install.sh talos longhorn` · `./longhorn/longhorn-up.sh talos` |
+| 2 | `--distro=` | `./platform-up.sh --distro=kubeadm` |
+| 3 | variable d'environnement | `K8S_DISTRO=talos ./install.sh longhorn` |
+| 4 | `DISTRO=` dans le `lab.env` du lab | `DISTRO=kubeadm` |
+| 5 | **détection** sur le cluster | `osImage` du 1er node : `Talos …` → `talos`, sinon `kubeadm` |
+
+Sans aucune de ces sources, les scripts **refusent de démarrer** : appliquer un manifeste
+pensé pour Talos sur Debian (ou l'inverse) ne produit pas une erreur franche mais une panne
+silencieuse — un `Deployment` créé dont aucun pod ne démarre, par exemple.
+
+## 🧬 Ce qui diffère vraiment entre les deux labs
+
+Tout est concentré dans **`lib/profiles/talos.sh`** et **`lib/profiles/kubeadm.sh`** : les
+scripts d'installation ne testent jamais la distribution à coups de `if` dispersés, ils lisent
+des variables.
+
+| Sujet | Talos Linux | Debian 13 + kubeadm | Variable du profil |
+|---|---|---|---|
+| **Domaine par défaut des UI** | `talos.lab.example.io` | `kubeadm.lab.example.io` | `DEFAULT_LAB_DOMAIN` |
+| **PodSecurity (niveau cluster)** | `baseline` **appliqué** → un pod privilégié exige un namespace étiqueté `privileged`, sinon échec **silencieux** | aucun niveau appliqué → les mêmes labels ne débloquent rien, ils documentent l'intention | `PODSECURITY_DEFAUT` |
+| **Système de fichiers** | immuable : `/` et `/usr` en lecture seule, seul `/var` est inscriptible | ordinaire, tout est inscriptible | — |
+| **local-path-provisioner** | `/var/local-path-provisioner` | `/opt/local-path-provisioner` (chemin amont) | `LOCAL_PATH_DIR` |
+| **Prérequis iSCSI (Longhorn)** | **extension** `iscsi-tools` cuite dans l'image d'install (irrécupérable à chaud) + montage kubelet `rshared` via `talosctl patch mc` | **paquet** `open-iscsi` posé par `provision.sh` ; `/var/lib/longhorn` est un dossier ordinaire | `LONGHORN_PREP_REQUISE` |
+| **kube-proxy** | toujours posé par le bootstrap, non remplaçable ici | **optionnel** : remplaçable par Cilium en eBPF (`KUBE_PROXY_REPLACEMENT=true`, défaut du lab) | `KUBE_PROXY_REPLACEABLE` |
+| **Cilium — IPAM** | `ipam.mode=kubernetes` (podCIDR posés par le kube-controller-manager) | `ipam.mode=cluster-pool` (l'opérateur Cilium découpe le CIDR pod) | `CILIUM_IPAM_MODE` |
+| **Cilium — valeurs OS** | `cgroup.autoMount=false` + `cgroup.hostRoot` + capabilities explicites (**exigés**) | aucune : les défauts du chart sont les bons, les forcer serait **nuisible** | `cilium_sets_specifiques()` |
+| **Calico** | `flexVolumePath: None` et CSI `None` **obligatoires** (`/usr` en lecture seule) | mêmes réglages, mais comme simple allègement | (manifeste commun) |
+| **flannel (`CNI=flannel`)** | déjà posé par le bootstrap Talos → rien à installer | installé ici par le chart `flannel/flannel` | `FLANNEL_PRE_INSTALLED` |
+| **Trivy — scanners « node »** | **désactivés** : le `node-collector` bind-monte `/etc/systemd` → `read-only file system` | activés : les chemins existent et sont lisibles | `TRIVY_NODE_COLLECTOR` |
+| **Prometheus — control plane** | moniteurs etcd/scheduler/controller-manager **coupés** (non scrutables sans TLS dédié) | **activés** : `bind-address: 0.0.0.0` et `listen-metrics-urls` posés au bootstrap | `KPS_SCRAPE_CONTROL_PLANE` |
+| **Interface host-only** | `enp0s8` | `eth1` ou `enp0s8` selon la box → **détectée** dans `_out/cluster.env` | `DEFAULT_HOSTONLY_IF` |
+| **Faits du cluster** | `_out/controlplane.yaml` (`podSubnets`) | `_out/cluster.env` (CIDR, interface, kube-proxy) | — |
+| **Moteur KV Vault de démo** | `talos-lab/` | `kubeadm-lab/` | `VAULT_KV_MOUNT` |
+| **AC auto-signée** | `O=Vagrant-Talos lab` | `O=Vagrant-KubeADM lab` | `CA_ORG`, `CA_FILE_NAME` |
+
+Tout le reste — Argo CD, Kyverno, MinIO, CloudNativePG, Vault, Envoy Gateway, cert-manager,
+chaoskube, node-problem-detector, WordPress — est **strictement identique** sur les deux
+distributions.
+
+## 🗂️ Organisation du dépôt
+
+```
+install.sh                  point d'entrée : ./install.sh <talos|kubeadm> <composant...>
+platform-up.sh              la plateforme de base (CNI → Gateway → metrics → TLS)
+metric-server.yaml          metrics-server (appliqué par platform-up.sh)
+lib/
+  common.sh                 socle commun : résolution de la distro, lecture lab.env, helpers
+  profiles/talos.sh         TOUT ce qui est propre à Talos
+  profiles/kubeadm.sh       TOUT ce qui est propre à kubeadm/Debian
+<composant>/
+  <composant>-up.sh         l'installation « tout-en-un »
+  values.yaml / *.yaml      manifestes et values (valeurs NEUTRES, substituées à la volée)
+  README.md / LISEZ-MOI.md  doc EN/FR + pas-à-pas guidé
+```
+
+Les scripts ne stockent **rien** : `lab.env` et `_out/` (kubeconfig, talosconfig, secrets
+générés) restent dans le dépôt du lab. Ils y sont localisés automatiquement
+(`../Vagrant-Talos/` ou `../Vagrant-KubeADM/` selon la distribution), et c'est surchargeable :
+
+```bash
+LAB_ENV=~/labs/mon-lab/lab.env  KUBECONFIG=~/labs/mon-lab/kubeconfig  ./install.sh talos platform
+```
+
+## 🔗 Chaîne de dépendances
+
+Chaque maillon suppose le précédent : pas d'IP LoadBalancer sans annonceur L2, pas de HTTPS
+sans Gateway, pas d'UI sans certificat sur l'écouteur `:443`.
+
+```
+cluster bootstrapé  (lab Talos ou lab kubeadm — nodes NotReady, pas encore de CNI)
+   │
+   ├─ 1. CNI              cilium/ (défaut, + pool L2 → IP LoadBalancer .200)
+   │                      ou calico/ (CNI seul) ou flannel (CNI seul) ou rien
+   ├─ 2. envoy-gateway/   contrôleur Envoy + main-gateway (écouteurs :80 et :443)
+   ├─ 3. metric-server    API metrics.k8s.io  (kubectl top, HPA)
+   └─ 4. wildcard TLS     *.<LAB_DOMAIN> — deux modes selon SELF_SIGNED
+              │             true (défaut) → self-signed/   openssl, AC locale
+              │             false         → cert-manager/  Let's Encrypt DNS-01 Cloudflare
+              │
+              └─ addons : stockage → bases → secrets → observabilité → sécurité
+```
+
+C'est exactement l'ordre de `platform-up.sh` (`[1/4]` → `[4/4]`). Les deux modes TLS
+remplissent le **même** Secret (`wildcard-<LAB_DOMAIN en tirets>-tls`) : aucun addon n'a jamais
+à savoir lequel a été choisi.
+
+## 🌐 Domaine, et les trois valeurs « neutres »
+
+Le dépôt est **public** : aucun manifeste ne porte de vraie valeur. Trois marqueurs neutres
+sont substitués **à la volée** (fonction `rendre` de `lib/common.sh`), sans jamais réécrire un
+fichier versionné — `git status` reste propre :
+
+| Marqueur versionné | Remplacé par | Vient de |
+|---|---|---|
+| `lab.example.io` | `$LAB_DOMAIN` (défaut `<distro>.lab.example.io`) | env, puis `lab.env` |
+| `lab-example-io` | `$LAB_DOMAIN_DASH` — nom du Secret TLS wildcard | dérivé de `LAB_DOMAIN` |
+| `lab-kv` | `$VAULT_KV_MOUNT` (`talos-lab` / `kubeadm-lab`) | profil de distribution |
+
+```bash
+echo 'LAB_DOMAIN=k8s.mon-domaine.tld' >> ../Vagrant-Talos/lab.env
+```
+
+> ⚠️ **Les manifestes appliqués à la main** (sans passer par un `*-up.sh`) ne bénéficient pas
+> de la substitution : `wordpress-example/wordpress-mariadb.yaml`,
+> `vault-secret-operator/k8s/*.yaml`, `cert-manager/04-gateway-https-example.yaml`. Passe-les
+> dans le même `sed` :
+> ```bash
+> sed 's/lab\.example\.io/k8s.mon-domaine.tld/g' <fichier> | kubectl apply -f -
+> ```
+
+## 📦 Versions épinglées
+
+Audit du **1er août 2026** : tout est à la dernière version stable publiée à cette date
+(`helm search repo <chart> --versions`). Chaque version est surchargeable par variable
+d'environnement.
+
+| Composant | Chart / image | Version | Où | Variable |
+|---|---|---|---|---|
+| Cilium | `cilium/cilium` | `1.20.0` | `cilium/cilium-up.sh` | `CILIUM_VERSION` |
+| Calico | `projectcalico/tigera-operator` | `v3.32.1` | `calico/calico-up.sh` | `CALICO_VERSION` |
+| Envoy Gateway | `oci://docker.io/envoyproxy/gateway-helm` | `1.8.3` | `platform-up.sh` | `ENVOY_GW_VERSION` |
+| cert-manager | `jetstack/cert-manager` | `v1.21.1` | `platform-up.sh` | `CERT_MANAGER_VERSION` |
+| metrics-server | image `registry.k8s.io/…` | `v0.9.0` | `metric-server.yaml` | — |
+| Longhorn | `longhorn/longhorn` | `1.12.0` | `longhorn/longhorn-up.sh` | `LONGHORN_VERSION` |
+| local-path-provisioner | image `rancher/…` | `v0.0.36` | `local-path-storage/local-path-storage.yaml` | — |
+| CloudNativePG | `cnpg/cloudnative-pg` | `0.29.0` (app 1.30.0) | `cloudnative-pg/cloudnative-pg-up.sh` | `CNPG_VERSION` |
+| Vault | `hashicorp/vault` | `0.34.0` | `vault-cluster/vault-up.sh` | `VAULT_CHART_VERSION` |
+| Vault Secrets Operator | `hashicorp/vault-secrets-operator` | `1.5.0` | `vault-secret-operator/` (doc) | — |
+| kube-prometheus-stack | `prometheus-community/…` | `88.0.1` (op. v0.93.0) | `observability/observability-up.sh` | `KPS_VERSION` |
+| Loki | `grafana/loki` | `7.2.0` (app 3.6.11) | idem | `LOKI_VERSION` |
+| Alloy | `grafana/alloy` | `1.11.0` (app v1.18.0) | idem | `ALLOY_VERSION` |
+| node-problem-detector | `deliveryhero/…` | `2.3.14` (app v0.8.19) | `node-problem-detector/…-up.sh` | `NPD_VERSION` |
+| Kyverno | `kyverno/kyverno` | `3.8.2` (app v1.18.2) | `kyverno/kyverno-up.sh` | `KYVERNO_VERSION` |
+| Policy Reporter | `policy-reporter/policy-reporter` | `3.9.1` | `kyverno/`, `trivy-operator/` | `POLICY_REPORTER_VERSION` |
+| Trivy Operator | `aqua/trivy-operator` | `0.34.0` (app 0.32.0) | `trivy-operator/…-up.sh` | `TRIVY_OPERATOR_VERSION` |
+| Argo CD | `argo/argo-cd` | `10.2.2` (app v3.4.6) | `argocd/argocd-up.sh` | `ARGOCD_VERSION` |
+| chaoskube | `chaoskube/chaoskube` | `0.6.0` (app 0.39.0) | `chaos-kube/chaoskube-up.sh` | `CHAOSKUBE_VERSION` |
+| flannel | `flannel/flannel` | non épinglé (dernière : `v0.28.8`) | `platform-up.sh` | `FLANNEL_VERSION` |
+
+> ℹ️ Les images des **démos** (WordPress, MariaDB, nginx, alpine, busybox, PostgreSQL, MinIO)
+> sont épinglées volontairement et ne font pas partie de cet audit : les mettre à jour n'a
+> d'intérêt que si la démo casse.
+
+## 🗺️ Le catalogue
+
+`./install.sh <distro> list` affiche la même liste, à jour.
+
+### 🌐 Réseau & TLS
+
+| Dossier | Rôle | Commande |
+|---|---|---|
+| [`cilium/`](cilium/LISEZ-MOI.md) | **CNI par défaut** + pool d'IP LoadBalancer + annonce L2 (ARP) | `./install.sh <distro> cilium` |
+| [`calico/`](calico/LISEZ-MOI.md) | **CNI alternatif** (opérateur Tigera) — CNI **seul**, pas d'annonce L2 | `./install.sh <distro> calico` |
+| [`envoy-gateway/`](envoy-gateway/LISEZ-MOI.md) | contrôleur Envoy + `main-gateway` (`:80`/`:443`) + apps de démo | via `platform` |
+| [`self-signed/`](self-signed/LISEZ-MOI.md) | **mode TLS par défaut** — wildcard signé par une AC locale | via `platform` |
+| [`cert-manager/`](cert-manager/LISEZ-MOI.md) | wildcard TLS automatique (ACME DNS-01 Cloudflare) | via `platform` si `SELF_SIGNED=false` |
+
+### 💾 Stockage
+
+| Dossier | Rôle | Commande | StorageClass |
+|---|---|---|---|
+| [`longhorn/`](longhorn/LISEZ-MOI.md) | stockage bloc répliqué (prérequis iSCSI **différent selon la distro**) | `./install.sh <distro> longhorn` | `longhorn`, `longhorn-r1` |
+| [`local-path-storage/`](local-path-storage/LISEZ-MOI.md) | stockage local dynamique (hostPath ; **chemin selon la distro**) | `./install.sh <distro> local-path` | `local-path` |
+| [`minio-s3/`](minio-s3/LISEZ-MOI.md) | stockage objet S3 + console, **1 nœud** | `./install.sh <distro> minio` | — |
+| [`minio-s3/cluster/`](minio-s3/cluster/LISEZ-MOI.md) | MinIO **distribué** 4 nœuds (EC:2) — cible des sauvegardes | `./install.sh <distro> minio-cluster` | — |
+
+### 🐘 Bases de données
+
+| Dossier | Rôle | Commande | Prérequis |
+|---|---|---|---|
+| [`cloudnative-pg/`](cloudnative-pg/LISEZ-MOI.md) | opérateur PostgreSQL HA + cluster 3 nœuds, bascule auto, **sauvegardes S3 + PITR** | `./install.sh <distro> cnpg` | SC `longhorn-r1` |
+
+### 🔐 Secrets
+
+| Dossier | Rôle | Commande | Prérequis |
+|---|---|---|---|
+| [`vault-cluster/`](vault-cluster/LISEZ-MOI.md) | Vault HA (Raft) 3 nœuds, UI/API HTTPS | `./install.sh <distro> vault` | SC `longhorn` |
+| [`vault-secret-operator/`](vault-secret-operator/LISEZ-MOI.md) | secrets Vault → `Secret` K8s (KV statique, DB dynamique, PKI) | Helm + `vault/*.sh` | Vault descellé |
+
+### 📈 Observabilité
+
+| Dossier | Rôle | Commande | Prérequis |
+|---|---|---|---|
+| [`observability/`](observability/LISEZ-MOI.md) | Prometheus + Grafana + Alertmanager + Loki + Alloy | `./install.sh <distro> observability` | SC `longhorn-r1`, CP ≥ 4 Go |
+| [`node-problem-detector/`](node-problem-detector/LISEZ-MOI.md) | santé des nodes (kernel) | `./install.sh <distro> npd` | — |
+| [`chaos-kube/`](chaos-kube/LISEZ-MOI.md) | chaos : supprime **1 pod au hasard par heure** | `./install.sh <distro> chaos` | — |
+
+### 🛡️ Sécurité
+
+| Dossier | Rôle | Commande | Prérequis |
+|---|---|---|---|
+| [`kyverno/`](kyverno/LISEZ-MOI.md) | moteur de policies + Policy Reporter (UI), policies en Audit | `./install.sh <distro> kyverno` | `main-gateway` |
+| [`trivy-operator/`](trivy-operator/LISEZ-MOI.md) | scanner continu (CVE, config, secrets, RBAC) | `./install.sh <distro> trivy` | `kyverno` (UI partagée) |
+
+### 🧪 Démos
+
+| Dossier | Rôle | Commande |
+|---|---|---|
+| [`argocd/`](argocd/LISEZ-MOI.md) | Argo CD (GitOps), UI sous `argo.<LAB_DOMAIN>` | `./install.sh <distro> argocd` |
+| [`wordpress-example/`](wordpress-example/LISEZ-MOI.md) | WordPress + MariaDB sur Longhorn, exposés par Envoy | `kubectl apply` (cf. LISEZ-MOI) |
+
+## ⚠️ Pièges
+
+- **Deux StorageClass par défaut.** `longhorn/values.yaml` pose
+  `persistence.defaultClass: true` et `local-path-storage.yaml` l'annotation
+  `is-default-class: "true"`. Les deux addons installés ⇒ un PVC sans `storageClassName`
+  explicite atterrit sur la SC créée en dernier, de façon non déterministe. **Nomme toujours
+  ta SC.**
+- **`CNI=cilium` est le seul choix « tout allumé ».** Cette couche a besoin d'un Service
+  `LoadBalancer` qui obtienne réellement une IP : seule l'annonce L2 (ARP) de Cilium le fait
+  ici. Avec `calico`, `flannel` ou `none`, le Gateway reste en `EXTERNAL-IP <pending>` et
+  **aucune UI n'est joignable**.
+- **Changer de CNI à chaud n'est pas supporté** : remets le cluster à plat depuis le lab
+  (`./kubeadm/cluster-reset.sh`, ou `vagrant destroy`), puis rebootstrape.
+- **Les policies Kyverno du dépôt sont violées par le dépôt lui-même**
+  (`require-requests-limits` exige un `limits.cpu` que les manifestes maison ne posent pas,
+  volontairement). Le rapport est bruyant par construction — cf.
+  [`kyverno/`](kyverno/LISEZ-MOI.md).
+- **Les émetteurs de métriques sont coupés par défaut** (`serviceMonitor`/`podMonitor` à
+  `false` dans trivy-operator, CloudNativePG, node-problem-detector) : Prometheus ne scrute
+  rien tant que tu ne les rallumes pas après avoir installé `observability`.
+- **Ne descends jamais `CP_MEM` sous `3072`** dans le `lab.env` du lab : empiler ces addons
+  sur des control planes à 2 Go affame etcd. `observability` demande `4096`.
+
+## 📚 Références
+
+- [`../Vagrant-Talos/`](../Vagrant-Talos/) — le lab Talos (de `vagrant up` au cluster prêt)
+- [`../Vagrant-KubeADM/`](../Vagrant-KubeADM/) — le lab Debian 13 + kubeadm
+- [Gateway API](https://gateway-api.sigs.k8s.io/) ·
+  [Cilium](https://docs.cilium.io/) ·
+  [Envoy Gateway](https://gateway.envoyproxy.io/) ·
+  [cert-manager](https://cert-manager.io/docs/) ·
+  [Talos Linux](https://www.talos.dev/latest/) ·
+  [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/)
