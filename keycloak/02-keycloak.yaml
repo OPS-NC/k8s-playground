@@ -1,39 +1,39 @@
-# 02-keycloak.yaml — le CR `Keycloak`, c'est-à-dire TOUT le déploiement.
+# 02-keycloak.yaml — the `Keycloak` CR, that is to say the WHOLE deployment.
 #
-# On ne pose ici ni Deployment, ni StatefulSet, ni Service, ni ConfigMap : l'opérateur
-# Keycloak les dérive de ce seul objet, et les reconcilie en continu. Modifier le
-# StatefulSet à la main ne sert donc à rien — l'opérateur le remet comme il l'entend.
-# Tout réglage passe par ce CR (ou, en dernier recours, par `spec.additionalOptions`).
+# We lay down neither a Deployment, nor a StatefulSet, nor a Service, nor a ConfigMap here: the
+# Keycloak operator derives them from this single object, and reconciles them continuously.
+# Editing the StatefulSet by hand is therefore pointless — the operator puts it back the way it
+# wants. Every setting goes through this CR (or, as a last resort, through
+# `spec.additionalOptions`).
 #
-# ⚠️ LE point de montage du lab : **Envoy termine le TLS, Keycloak parle en clair**.
-#    - `http.httpEnabled: true`  -> le pod écoute en HTTP sur 8080 (Service
-#      `keycloak-service:8080`), et l'opérateur n'exige plus de certificat serveur ;
-#    - `proxy.headers: xforwarded` -> Keycloak fait CONFIANCE aux en-têtes
-#      `X-Forwarded-*` posés par Envoy. Sans ça, il croit être joint en HTTP sur son nom
-#      interne et fabrique des URL de redirection en `http://keycloak-service:8080/...`
-#      -> le navigateur boucle, et OAuth casse (le `redirect_uri` ne correspond plus) ;
-#    - `hostname.hostname` -> l'URL PUBLIQUE, celle qui doit apparaître dans l'issuer
-#      (`https://keycloak.<domaine>/realms/<realm>`), les métadonnées OIDC et tous les
-#      liens. C'est elle que les clients OIDC (Dex, kubectl) valideront.
+# ⚠️ THE key point of the lab setup: **Envoy terminates TLS, Keycloak speaks plaintext**.
+#    - `http.httpEnabled: true`  -> the pod listens over HTTP on 8080 (Service
+#      `keycloak-service:8080`), and the operator no longer requires a server certificate;
+#    - `proxy.headers: xforwarded` -> Keycloak TRUSTS the `X-Forwarded-*` headers set by Envoy.
+#      Without it, it believes it is being reached over HTTP on its internal name and builds
+#      redirect URLs like `http://keycloak-service:8080/...` -> the browser loops, and OAuth
+#      breaks (the `redirect_uri` no longer matches);
+#    - `hostname.hostname` -> the PUBLIC URL, the one that must appear in the issuer
+#      (`https://keycloak.<domain>/realms/<realm>`), in the OIDC metadata and in every link.
+#      It is the one OIDC clients (Dex, kubectl) will validate.
 #
-# ⚠️ `proxy.headers: xforwarded` n'est SÛR que parce que le pod n'est joignable que par
-#    la Gateway (ClusterIP + HTTPRoute). Exposer ce Service directement laisserait
-#    n'importe qui usurper `X-Forwarded-Host` et empoisonner les liens de reset de mot
-#    de passe. Cf. la section « Pièges » du README.
+# ⚠️ `proxy.headers: xforwarded` is only SAFE because the pod is reachable through the Gateway
+#    alone (ClusterIP + HTTPRoute). Exposing this Service directly would let anyone spoof
+#    `X-Forwarded-Host` and poison the password-reset links. See the README's "Pitfalls".
 apiVersion: k8s.keycloak.org/v2beta1
 kind: Keycloak
 metadata:
   name: keycloak
   namespace: keycloak
 spec:
-  # 1 instance : Keycloak en HA exige un cache Infinispan distribué correctement réglé,
-  # ce qui n'apporte rien sur des workers de lab. Monter ce nombre demande d'abord de
-  # lire la doc « Configuring distributed caches » de l'amont.
+  # 1 instance: Keycloak in HA requires a properly tuned distributed Infinispan cache, which
+  # brings nothing on lab workers. Raising this number means first reading the upstream
+  # "Configuring distributed caches" guide.
   instances: 1
 
-  # --- Base de données (cf. 01-postgres.yaml) --------------------------------
-  # `keycloak-db-rw` est le Service CNPG qui pointe TOUJOURS le primaire — jamais l'IP
-  # d'un pod, qui changerait au moindre failover.
+  # --- Database (see 01-postgres.yaml) --------------------------------------
+  # `keycloak-db-rw` is the CNPG Service that ALWAYS points at the primary — never a pod IP,
+  # which would change on the slightest failover.
   db:
     vendor: postgres
     host: keycloak-db-rw
@@ -46,22 +46,23 @@ spec:
       name: keycloak-db-app
       key: password
 
-  # --- Exposition -------------------------------------------------------------
+  # --- Exposure ---------------------------------------------------------------
   http:
     httpEnabled: true
   hostname:
     hostname: https://keycloak.lab.example.io
   proxy:
     headers: xforwarded
-  # L'opérateur crée un Ingress par défaut. On le coupe : ce dépôt expose tout par la
-  # Gateway API (`httproute.yaml`), et il n'y a d'ailleurs aucun contrôleur Ingress ici.
+  # The operator creates an Ingress by default. We turn it off: this repository exposes
+  # everything through the Gateway API (`httproute.yaml`), and there is no Ingress controller
+  # here anyway.
   ingress:
     enabled: false
 
-  # --- Ressources -------------------------------------------------------------
-  # Keycloak 26 est un binaire Quarkus : ~700 Mio au repos, plus au premier démarrage
-  # (augmentation du schéma de base). En dessous de 1 Gio de limite, l'OOMKill arrive
-  # pendant la migration Liquibase — panne illisible, base à moitié migrée.
+  # --- Resources --------------------------------------------------------------
+  # Keycloak 26 is a Quarkus binary: ~700 MiB at rest, more on the first start (the database
+  # schema upgrade). Below a 1 GiB limit, the OOMKill lands during the Liquibase migration —
+  # an unreadable failure, with a half-migrated database.
   resources:
     requests:
       memory: 768Mi

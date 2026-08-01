@@ -1,19 +1,18 @@
-# 01-postgres.yaml — la base PostgreSQL de Keycloak, gérée par CloudNativePG.
+# 01-postgres.yaml — Keycloak's PostgreSQL database, managed by CloudNativePG.
 #
-# Keycloak stocke TOUT en base : realms, clients, utilisateurs, sessions offline. Sans
-# base externe il repart de zéro à chaque redémarrage de pod (le mode `dev-file` ne
-# survit pas au pod, et l'opérateur le refuse en production). Cette base est donc un
-# prérequis dur, pas une option.
+# Keycloak stores EVERYTHING in the database: realms, clients, users, offline sessions.
+# Without an external database it starts from scratch on every pod restart (the `dev-file`
+# mode does not survive the pod, and the operator refuses it in production). This database is
+# therefore a hard prerequisite, not an option.
 #
-# Pourquoi CloudNativePG plutôt qu'un Deployment `postgres:17` maison : l'opérateur est
-# DÉJÀ dans ce dépôt (cf. ../cloudnative-pg/), il gère le failover, les sauvegardes et
-# la rotation des identifiants, et il produit tout seul le Secret `keycloak-db-app` que
-# le CR Keycloak référence juste en dessous. Un composant de plus à installer, zéro
-# manifeste PostgreSQL à maintenir ici.
+# Why CloudNativePG rather than a home-made `postgres:17` Deployment: the operator is ALREADY
+# in this repository (see ../cloudnative-pg/), it handles failover, backups and credential
+# rotation, and it produces on its own the `keycloak-db-app` Secret the Keycloak CR references
+# just below. One more component to install, zero PostgreSQL manifest to maintain here.
 #
-# 1 seule instance : c'est un lab, et la réplication PostgreSQL n'apporte rien tant que
-# Keycloak lui-même tourne en un seul exemplaire. `../cloudnative-pg/cluster-demo.yaml`
-# montre la version HA à 3 nœuds.
+# A single instance: this is a lab, and PostgreSQL replication brings nothing while Keycloak
+# itself runs as a single copy. `../cloudnative-pg/cluster-demo.yaml` shows the 3-node HA
+# version.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -22,15 +21,15 @@ metadata:
 spec:
   instances: 1
 
-  # `longhorn-r1` = 1 réplica bloc. C'est la SC socle du dépôt pour les bases : la
-  # redondance se joue au niveau applicatif (ici : nulle part, une instance), pas en
-  # empilant 3 copies Longhorn sous chaque instance — le disque OS des workers fait 20 Go.
+  # `longhorn-r1` = 1 block replica. It is this repository's base SC for databases: redundancy
+  # is played at the application level (here: nowhere, a single instance), not by stacking 3
+  # Longhorn copies under each instance — the workers' OS disk is 20 GB.
   storage:
     size: 2Gi
     storageClass: longhorn-r1
 
-  # Calibré pour des workers à 4 Go (cf. WK_MEM du lab.env), en tenant compte du fait que
-  # Keycloak (~1 Go) tourne sur les mêmes nodes.
+  # Sized for 4 GB workers (see WK_MEM in lab.env), taking into account that Keycloak (~1 GB)
+  # runs on the same nodes.
   resources:
     requests:
       memory: 256Mi
@@ -43,15 +42,15 @@ spec:
       max_connections: "100"
       shared_buffers: "128MB"
 
-  # PodMonitor désactivé tant que kube-prometheus-stack n'est pas installé
-  # (cf. ../observability/) : sinon l'opérateur crée un PodMonitor sans CRD derrière.
+  # PodMonitor disabled until kube-prometheus-stack is installed (see ../observability/):
+  # otherwise the operator creates a PodMonitor with no CRD behind it.
   monitoring:
     enablePodMonitor: false
 
-  # Base et propriétaire EXPLICITES : sans ça CNPG crée la base `app` et l'utilisateur
-  # `app`, et le CR Keycloak devrait pointer là. On préfère des noms qui disent ce qu'ils
-  # sont. Le Secret produit garde, lui, le nom dérivé du cluster : `keycloak-db-app`
-  # (clés `username`, `password`, `host`, `dbname`, `uri`).
+  # EXPLICIT database and owner: without this CNPG creates the `app` database and the `app`
+  # user, and the Keycloak CR would have to point there. We prefer names that say what they
+  # are. The produced Secret keeps the name derived from the cluster: `keycloak-db-app`
+  # (keys `username`, `password`, `host`, `dbname`, `uri`).
   bootstrap:
     initdb:
       database: keycloak
