@@ -324,6 +324,8 @@ cluster bootstrapé  (lab Talos ou lab kubeadm — nodes NotReady, pas encore de
    │
    ├─ 1. CNI              cilium/ (défaut, + pool L2 → IP LoadBalancer .200)
    │                      ou calico/ (CNI seul) ou flannel (CNI seul) ou rien
+   │     + annonceur L2   metallb/ — UNIQUEMENT si le CNI n'est pas cilium, sur la MÊME plage
+   │                      (sauté avec METALLB=false : plus aucune IP LoadBalancer)
    ├─ 2. envoy-gateway/   contrôleur Envoy + main-gateway (écouteurs :80 et :443)
    ├─ 3. metric-server    API metrics.k8s.io  (kubectl top, HPA)
    └─ 4. wildcard TLS     *.<LAB_DOMAIN> — deux modes selon SELF_SIGNED
@@ -378,6 +380,7 @@ d'environnement.
 |---|---|---|---|---|
 | Cilium | `cilium/cilium` | `1.20.0` | `cilium/cilium-up.sh` | `CILIUM_VERSION` |
 | Calico | `projectcalico/tigera-operator` | `v3.32.1` | `calico/calico-up.sh` | `CALICO_VERSION` |
+| MetalLB | `metallb/metallb` | `0.16.1` | `metallb/metallb-up.sh` | `METALLB_VERSION` |
 | Envoy Gateway | `oci://docker.io/envoyproxy/gateway-helm` | `1.8.3` | `platform-up.sh` | `ENVOY_GW_VERSION` |
 | cert-manager | `jetstack/cert-manager` | `v1.21.1` | `platform-up.sh` | `CERT_MANAGER_VERSION` |
 | metrics-server | image `registry.k8s.io/…` | `v0.9.0` | `metric-server.yaml` | — |
@@ -418,6 +421,7 @@ d'environnement.
 |---|---|---|
 | [`cilium/`](cilium/LISEZ-MOI.md) | **CNI par défaut** + pool d'IP LoadBalancer + annonce L2 (ARP) | `./install.sh <distro> cilium` |
 | [`calico/`](calico/LISEZ-MOI.md) | **CNI alternatif** (opérateur Tigera) — CNI **seul**, pas d'annonce L2 | `./install.sh <distro> calico` |
+| [`metallb/`](metallb/LISEZ-MOI.md) | annonceur L2 (ARP) — les IP LoadBalancer **quand le CNI n'est pas Cilium** | via `platform` quand `CNI != cilium` |
 | [`envoy-gateway/`](envoy-gateway/LISEZ-MOI.md) | contrôleur Envoy + `main-gateway` (`:80`/`:443`) + apps de démo | via `platform` |
 | [`self-signed/`](self-signed/LISEZ-MOI.md) | **mode TLS par défaut** — wildcard signé par une AC locale | via `platform` |
 | [`cert-manager/`](cert-manager/LISEZ-MOI.md) | wildcard TLS automatique (ACME DNS-01 Cloudflare) | via `platform` si `SELF_SIGNED=false` |
@@ -518,10 +522,17 @@ telle quelle.
   `is-default-class: "true"`. Les deux addons installés ⇒ un PVC sans `storageClassName`
   explicite atterrit sur la SC créée en dernier, de façon non déterministe. **Nomme toujours
   ta SC.**
-- **`CNI=cilium` est le seul choix « tout allumé ».** Cette couche a besoin d'un Service
-  `LoadBalancer` qui obtienne réellement une IP : seule l'annonce L2 (ARP) de Cilium le fait
-  ici. Avec `calico`, `flannel` ou `none`, le Gateway reste en `EXTERNAL-IP <pending>` et
-  **aucune UI n'est joignable**.
+- **Cette couche a besoin d'un Service `LoadBalancer` qui obtienne réellement une IP**, et
+  Cilium est le seul CNI ici à en fournir une tout seul (annonce L2/ARP). Avec `calico`,
+  `flannel` ou `none`, `platform-up.sh` installe [`metallb/`](metallb/LISEZ-MOI.md) juste après
+  le CNI, sur la même plage — tous les CNI aboutissent donc désormais à un `.200` joignable.
+  Deux choses laissent encore le Gateway en `EXTERNAL-IP <pending>` : `METALLB=false` dans
+  `lab.env`, et appliquer `envoy-gateway/Envoy-Proxy.yml` **à la main** en y laissant la
+  `loadBalancerClass` Cilium.
+- **Jamais MetalLB *et* Cilium.** Deux annonceurs sur une plage, ce sont deux nodes qui
+  répondent à l'ARP pour `.200` : le point d'entrée marche alors « une fois sur deux », sans
+  qu'aucun log ne le dise. `metallb-up.sh` refuse de s'installer sur un cluster Cilium, et
+  `platform` ne le choisit jamais là.
 - **Changer de CNI à chaud n'est pas supporté** : remets le cluster à plat depuis le lab
   (`./kubeadm/cluster-reset.sh`, ou `vagrant destroy`), puis rebootstrape.
 - **Les policies Kyverno du dépôt sont violées par le dépôt lui-même**

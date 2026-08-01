@@ -29,6 +29,7 @@ CATALOGUE=(
   "platform|platform-up.sh|CNI + Envoy Gateway + metrics-server + wildcard TLS (the base)"
   "cilium|cilium/cilium-up.sh|Cilium CNI + LoadBalancer IP pool + L2 announcement (ARP)"
   "calico|calico/calico-up.sh|Calico CNI through the Tigera operator (alternative, no L2)"
+  "metallb|metallb/metallb-up.sh|MetalLB in L2 mode: LoadBalancer IPs when the CNI is NOT Cilium"
   "self-signed|self-signed/selfsigned-up.sh|local CA + self-signed wildcard TLS (openssl)"
   "longhorn|longhorn/longhorn-up.sh|replicated block storage + longhorn-r1 StorageClass"
   "local-path|local-path-storage/local-path-up.sh|dynamic local storage (hostPath)"
@@ -93,7 +94,11 @@ if [ "${1}" = "all" ]; then
   targets=()
   for e in "${CATALOGUE[@]}"; do
     case "${e%%|*}" in
-      calico|local-path|self-signed) continue ;;   # alternatives, not steps of `all`
+      # Alternatives, not steps of `all`. `metallb` is in there for a second reason: on the
+      # default CNI=cilium it REFUSES to install (two ARP announcers on one range), so an
+      # unconditional `all` would always stop right there. `platform` installs it by itself
+      # when — and only when — the CNI calls for it.
+      calico|metallb|local-path|self-signed) continue ;;
     esac
     targets+=("${e%%|*}")
   done

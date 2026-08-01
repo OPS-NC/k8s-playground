@@ -12,8 +12,11 @@
 #      nothing, see FLANNEL_PRE_INSTALLED in lib/profiles/talos.sh.)
 #
 # Order (every link assumes the previous one):
-#   1. CNI                 per `CNI` (cluster.env, then lab.env) — cilium (default, + L2 pool
-#                          => LB IP), calico (CNI only), flannel (CNI only), none
+#   1. CNI + L2 announcer  per `CNI` (cluster.env, then lab.env) — cilium (default, announces
+#                          its own LoadBalancer IPs), calico (CNI only), flannel (CNI only),
+#                          none. When the CNI does NOT announce, metallb/ is installed right
+#                          after it on the SAME range => a LoadBalancer IP in every case.
+#                          `METALLB=false` in lab.env opts out (you then have no LB IP).
 #   2. Envoy Gateway       controller + Gateway API CRDs + main-gateway (HTTP/HTTPS)
 #   3. metrics-server      metrics.k8s.io (kubectl top)
 #   4. wildcard TLS        per `SELF_SIGNED` in lab.env:
@@ -89,18 +92,41 @@ case "$LAB_ACME_ISSUER" in
 esac
 ACME_ISSUER="letsencrypt-${LAB_ACME_ISSUER}"
 
-# --- CNI: who lays down the network, and will we get a LoadBalancer IP? ------
-#   cilium  -> Cilium + its L2 pool (ARP announcement)                    => LB IP ✅
-#   calico  -> Calico through the Tigera operator (CNI only)              => LB IP ❌
-#   flannel -> flannel (CNI only) — ALREADY installed at bootstrap on Talos => LB IP ❌
-#   none    -> nobody installs a CNI, that is on you                      => LB IP ❌
+# --- CNI: who lays down the network? -----------------------------------------
+#   cilium  -> Cilium + its L2 pool (ARP announcement)                      => announces itself
+#   calico  -> Calico through the Tigera operator (CNI only)                => needs MetalLB
+#   flannel -> flannel (CNI only) — ALREADY installed at bootstrap on Talos => needs MetalLB
+#   none    -> nobody installs a CNI, that is on you                        => needs MetalLB
 CNI="$(read_param CNI cilium)"
 case "$CNI" in
   cilium|calico|flannel|none) ;;
   *) fail "unknown CNI='${CNI}' (cilium|calico|flannel|none)." ;;
 esac
-# Only Cilium announces Service IPs over L2 in this lab.
-if [ "$CNI" = "cilium" ]; then LB_L2=1 ; else LB_L2=0 ; fi
+
+# --- L2 announcer: who makes a LoadBalancer IP reachable from the host? ------
+# Only Cilium announces Service IPs on its own here. For every other CNI the lab installs
+# MetalLB in L2 mode, on the SAME range and the same interface (see metallb/): the entry point
+# keeps the address the wildcard DNS record points at, whatever the CNI.
+#
+# `METALLB=false` opts out — for a cluster that already has an announcer (a real
+# MetalLB/kube-vip installed by hand, a cloud controller). The Gateway then stays <pending>.
+#
+# ⚠️ NEVER cilium + MetalLB: two announcers on the same range means two nodes answering ARP
+#    for the same IP. Hence the switch below rather than an independent flag, and the guard
+#    rail inside metallb-up.sh for a direct call.
+METALLB="$(read_param METALLB true)"
+METALLB="$(printf '%s' "$METALLB" | tr '[:upper:]' '[:lower:]')"
+case "$METALLB" in
+  true|false) ;;
+  *) fail "unknown METALLB='${METALLB}' (true|false)." ;;
+esac
+if [ "$CNI" = "cilium" ]; then
+  LB_ANNOUNCER=cilium
+elif [ "$METALLB" = "true" ]; then
+  LB_ANNOUNCER=metallb
+else
+  LB_ANNOUNCER=none
+fi
 
 # LoadBalancer IP range: the 1st IP is the one the Gateway takes (target of the wildcard DNS).
 LB_POOL_START="$(read_param LB_POOL_START 192.168.56.200)"
@@ -134,7 +160,7 @@ log "Platform — ${K8S_DISTRO} profile"
 distro_summary
 
 # ============================================================================
-log "[1/4] CNI = ${CNI}"
+log "[1/4] CNI = ${CNI}, L2 announcer = ${LB_ANNOUNCER}"
 case "$CNI" in
   cilium)
     echo "    -> cilium/cilium-up.sh (CNI + L2 pool)"
@@ -143,9 +169,8 @@ case "$CNI" in
   calico)
     echo "    -> calico/calico-up.sh (CNI only)"
     bash "${REPO_ROOT}/calico/calico-up.sh" "$K8S_DISTRO"
-    echo "    /!\\ Calico does NOT announce LoadBalancer Service IPs (BGP only)."
-    echo "        The Gateway will stay on EXTERNAL-IP <pending> and no UI will be"
-    echo "        reachable until MetalLB is installed. See calico/README.md."
+    echo "    Calico announces no LoadBalancer Service IP (BGP only, and there is no peer"
+    echo "    router on a host-only network): MetalLB takes that role below."
     ;;
   flannel)
     if [ "$FLANNEL_PRE_INSTALLED" = "true" ]; then
@@ -177,13 +202,27 @@ case "$CNI" in
       echo "    waiting for nodes to become Ready..."
       kubectl wait --for=condition=Ready nodes --all --timeout=300s
     fi
-    echo "    /!\\ flannel assigns no LoadBalancer Service IP: the Gateway will stay on"
-    echo "        EXTERNAL-IP <pending>. For the HTTPS UIs, use CNI=cilium."
+    echo "    flannel assigns no LoadBalancer Service IP: MetalLB takes that role below."
     ;;
   none)
     echo "    CNI=none: no CNI installed, neither by the bootstrap nor here."
     kubectl get nodes --no-headers | grep -q ' Ready ' \
       || fail "no Ready node — install your CNI before carrying on."
+    ;;
+esac
+
+# The announcer comes right AFTER the CNI and BEFORE the Gateway: MetalLB is an ordinary
+# workload (it needs the pod network to run at all), and the Envoy Service created at step
+# [2/4] then gets its IP the moment it appears, instead of waiting for a later reconcile.
+case "$LB_ANNOUNCER" in
+  metallb)
+    echo "    -> metallb/metallb-up.sh (L2 announcement of ${LB_POOL_START}, the range Cilium would use)"
+    bash "${REPO_ROOT}/metallb/metallb-up.sh" "$K8S_DISTRO"
+    ;;
+  none)
+    echo "    /!\\ METALLB=false with CNI=${CNI}: NOTHING announces LoadBalancer IPs."
+    echo "        The Gateway will stay on EXTERNAL-IP <pending> and no UI will be"
+    echo "        reachable. Drop METALLB=false, or bring your own announcer."
     ;;
 esac
 
@@ -211,16 +250,17 @@ gateway_ip() {
     2>/dev/null || true
 }
 
-if [ "$LB_L2" = "1" ]; then
+if [ "$LB_ANNOUNCER" = "cilium" ]; then
   render_envoy_proxy | kubectl apply -f -
 else
-  # `loadBalancerClass: io.cilium/l2-announcer` is Cilium-specific: leaving it would stop any
-  # other announcer (MetalLB with Calico) from serving this Service.
+  # `loadBalancerClass: io.cilium/l2-announcer` names ONE controller as the only one allowed to
+  # serve this Service. Left in place with MetalLB, MetalLB ignores the Service and the IP
+  # stays <pending> forever, with a valid pool right next to it — the #1 false lead here.
   render_envoy_proxy | sed '/loadBalancerClass:/d' | kubectl apply -f -
 fi
 
-if [ "$LB_L2" = "1" ]; then
-  echo "    waiting for the LoadBalancer IP (L2 announcement, expecting ${LB_POOL_START})..."
+if [ "$LB_ANNOUNCER" != "none" ]; then
+  echo "    waiting for the LoadBalancer IP (${LB_ANNOUNCER} L2 announcement, expecting ${LB_POOL_START})..."
   for _ in $(seq 1 30); do
     ip="$(gateway_ip)"
     [ -n "$ip" ] && break
@@ -230,11 +270,16 @@ if [ "$LB_L2" = "1" ]; then
     echo "    Gateway EXTERNAL-IP = $ip"
   else
     echo "    /!\\ still <pending> after 150 s. Check the pool and the L2 announcement:"
-    echo "        kubectl get ciliumloadbalancerippool ; kubectl get ciliuml2announcementpolicy"
+    if [ "$LB_ANNOUNCER" = "cilium" ]; then
+      echo "        kubectl get ciliumloadbalancerippool ; kubectl get ciliuml2announcementpolicy"
+    else
+      echo "        kubectl get ipaddresspool -n metallb-system ; kubectl get l2advertisement -n metallb-system"
+      echo "        kubectl -n metallb-system logs deploy/metallb-controller"
+    fi
   fi
 else
-  echo "    No L2 announcer with CNI=${CNI}: the Service will stay <pending>."
-  echo "    That is expected — install MetalLB (see calico/README.md) to get one."
+  echo "    No L2 announcer (CNI=${CNI}, METALLB=false): the Service will stay <pending>."
+  echo "    Drop METALLB=false from lab.env to get one (see metallb/README.md)."
 fi
 
 log "[3/4] metrics-server (--kubelet-insecure-tls: self-signed kubelet certificates)"
@@ -291,7 +336,12 @@ fi   # end of the SELF_SIGNED switch
 
 # ============================================================================
 log "Platform installed (${K8S_DISTRO})."
-echo "  CNI          : ${CNI}$([ "$LB_L2" = 1 ] && echo ' (L2 announcement of LoadBalancer IPs)' || echo ' (no LoadBalancer IP)')"
+echo "  CNI          : ${CNI}"
+case "$LB_ANNOUNCER" in
+  cilium)  echo "  L2 announcer : Cilium (built into the CNI) — pool ${LB_POOL_START}+" ;;
+  metallb) echo "  L2 announcer : MetalLB (metallb-system) — pool ${LB_POOL_START}+, same range as Cilium's" ;;
+  none)    echo "  L2 announcer : NONE (METALLB=false) — no LoadBalancer IP, no reachable UI" ;;
+esac
 if [ "$KUBE_PROXY_REPLACEABLE" = "true" ]; then
   echo "  kube-proxy   : $([ "$KUBE_PROXY_REPLACEMENT" = true ] && echo 'REPLACED by Cilium (eBPF)' || echo 'installed by kubeadm')"
 else

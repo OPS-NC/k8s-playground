@@ -7,8 +7,9 @@
 > The lab's third CNI choice, next to `flannel` (bare-bones) and `cilium` (the default).
 > Calico is installed by the **Tigera operator** and covers the pod network, routing and
 > NetworkPolicy. It does **not** take over the "cloud provider" role that Cilium fills on top:
-> no `LoadBalancer` Service IP, hence no `192.168.56.200` VIP — you need MetalLB alongside. Read
-> the 🎯 section before choosing.
+> no `LoadBalancer` Service IP, hence no `192.168.56.200` VIP on its own — which is why
+> [`../metallb/`](../metallb/README.md) is installed alongside it, automatically. Read the 🎯
+> section before choosing.
 
 ## 🎯 Purpose
 
@@ -41,8 +42,10 @@ Concrete, not theoretical consequence: with `CNI=calico` **and nothing else**,
 | The `HTTPRoute`s are reachable by nobody | Argo CD, Grafana, Vault, Longhorn, MinIO… **unreachable** |
 | The wildcard certificate is still issued (DNS-01) | but is useless: there is no entry point left |
 
-In other words: **the whole `k8s-playground/` layer of the lab depends on that VIP.** See
-[🌐 Making the UIs reachable](#-making-the-lab-uis-reachable-metallb) for the procedure.
+In other words: **the whole `k8s-playground/` layer of the lab depends on that VIP.** So
+`../platform-up.sh` no longer leaves you there: as soon as `CNI != cilium` it installs
+[**MetalLB**](../metallb/README.md) right after this script, on the very same range and the same
+interface Cilium would have used. See [🌐 Making the UIs reachable](#-making-the-lab-uis-reachable-metallb).
 
 ### Cilium or Calico?
 
@@ -51,10 +54,10 @@ In other words: **the whole `k8s-playground/` layer of the lab depends on that V
 | CNI (pod network, routing) | ✅ VXLAN, host-only NIC pinned | ✅ VXLAN, autodetection on `192.168.56.0/24` |
 | Kubernetes NetworkPolicy | ✅ | ✅ |
 | Extended policies | ✅ `CiliumNetworkPolicy` (L7, DNS, identities) | ✅ `projectcalico.org/v3` (tiers, order, `HostEndpoint`) |
-| **L2 announcement of LoadBalancer IPs** | ✅ built in (ARP, `.200-.230` pool) | ❌ **MetalLB required** (Calico = BGP only) |
+| **L2 announcement of LoadBalancer IPs** | ✅ built in (ARP, `.200-.230` pool) | ❌ none of its own (BGP only) → [`metallb/`](../metallb/README.md), installed automatically |
 | kube-proxy replacement | ✅ `kubeProxyReplacement=true` (documented) | ⚠️ only with the **eBPF** dataplane, ruled out here (see ⚠️ Pitfalls) |
 | Flow observability | ✅ Hubble (relay + UI) installed | ⚠️ Whisker + Goldmane shipped by the chart, **disabled** by default here |
-| Ready to use in THIS lab | ✅ `platform-up.sh` chains everything | ⚠️ two manual steps are left to you |
+| Ready to use in THIS lab | ✅ `platform-up.sh` chains everything | ✅ `platform-up.sh` chains everything too, MetalLB included |
 
 > 💡 **Recommendation: keep Cilium as the lab default.** Calico is here to *compare* CNIs and to
 > work on NetworkPolicy, not to light up a complete lab without extra work.
@@ -186,9 +189,9 @@ kubectl get ippools.projectcalico.org         # through the calico-apiserver, no
 kubectl -n envoy-gateway-system get svc       # EXTERNAL-IP <pending>: EXPECTED with Calico
 ```
 
-> ⚠️ Calico announces no `LoadBalancer` Service IP (BGP only). To reach the lab UIs: install
-> MetalLB **and** remove `loadBalancerClass: io.cilium/l2-announcer` from
-> `envoy-gateway/Envoy-Proxy.yml` (see the "Pitfalls" section of this document).
+> ⚠️ Calico announces no `LoadBalancer` Service IP (BGP only). `<pending>` at this exact point
+> is therefore normal: it is [`../metallb/`](../metallb/README.md), installed by
+> `platform-up.sh` right after this script, that fills the address in — see the 🌐 section.
 
 ## 🔧 What the script does
 
@@ -279,45 +282,46 @@ kubectl delete pod t1 t2
 
 ## 🌐 Making the lab UIs reachable (MetalLB)
 
-Calico provides no `LoadBalancer` IP: **installing an L2 announcer is on you.** This directory
-does not do it. Two things to do, in this order.
+Calico provides no `LoadBalancer` IP — but **you no longer have to do anything about it**. Both
+steps that used to be manual are now handled by `../platform-up.sh` at step **[1/4]**, right
+after this script, as soon as `CNI != cilium`:
 
-**1. Install MetalLB in L2 mode** on the same range Cilium uses (`192.168.56.200` →
-`192.168.56.230`, with the **first IP** going to `main-gateway`):
+**1. MetalLB is installed in L2 mode**, by [`../metallb/metallb-up.sh`](../metallb/README.md),
+on the same range Cilium uses (`192.168.56.200` → `192.168.56.230`, with the **first IP** going
+to `main-gateway`), on the same host-only interface and from the workers only. It reads the same
+`LB_POOL_START` / `LB_POOL_END` / `HOSTONLY_IF` keys of `lab.env`, so the wildcard DNS record
+keeps pointing at the same address whichever CNI you picked.
 
-```bash
-helm repo add metallb https://metallb.github.io/metallb
-helm upgrade --install metallb metallb/metallb --version 0.16.1 \
-  -n metallb-system --create-namespace
-```
-
-Then an `IPAddressPool` + an `L2Advertisement` (`metallb.io/v1beta1`) covering the range.
-
-> ℹ️ **PodSecurity**: the MetalLB `speaker` runs in `hostNetwork` with `NET_RAW`. kubeadm
-> enforces nothing cluster-wide, so it starts as is — but if you ever harden admission, label the
-> `metallb-system` namespace `pod-security.kubernetes.io/enforce: privileged`, same recipe as
-> [`../observability/namespace.yaml`](../observability/namespace.yaml).
-
-**2. Remove the Cilium-specific `loadBalancerClass`.**
-[`../envoy-gateway/Envoy-Proxy.yml`](../envoy-gateway/Envoy-Proxy.yml) currently pins, on
-**line 13**:
+**2. The Cilium-specific `loadBalancerClass` is removed.**
+[`../envoy-gateway/Envoy-Proxy.yml`](../envoy-gateway/Envoy-Proxy.yml) pins, on **line 13**:
 
 ```yaml
         loadBalancerClass: io.cilium/l2-announcer
 ```
 
-> ⚠️ **As long as that line is there, MetalLB will not serve the Service.** A
-> `loadBalancerClass` tells Kubernetes "only this controller may handle this Service": MetalLB
-> will ignore it and the IP will stay `<pending>` even with a valid pool. You have to **delete**
-> the line (any announcer then takes over) or replace it with the class of the announcer you
-> chose.
+`platform-up.sh` strips that line before applying the manifest when `CNI != cilium`.
 
-Once both points are done:
+> ⚠️ **It matters, and it is the #1 false lead here.** A `loadBalancerClass` tells Kubernetes
+> "only this controller may handle this Service": left in place, MetalLB ignores the Service and
+> the IP stays `<pending>` **even with a perfectly valid pool**. If you apply
+> `Envoy-Proxy.yml` by hand rather than through `platform-up.sh`, delete the line yourself.
+
+Result, with no extra step:
 
 ```bash
+./platform-up.sh <distro>                                 # CNI=calico → Calico + MetalLB
 kubectl -n envoy-gateway-system get svc                   # EXTERNAL-IP = 192.168.56.200
-ping -c1 192.168.56.200                                   # from the host: ARP must answer
+kubectl get servicel2status -A -o wide                    # which worker announces it
 ```
+
+Installing it on its own — for a repair, or if you had opted out with `METALLB=false`:
+
+```bash
+./install.sh <distro> metallb
+```
+
+> ⚠️ **Never on a Cilium cluster.** Two announcers on one range means two nodes answering ARP
+> for `.200`. `metallb-up.sh` refuses outright — see [`../metallb/README.md`](../metallb/README.md).
 
 ## ⚠️ Pitfalls
 
@@ -350,7 +354,8 @@ ping -c1 192.168.56.200                                   # from the host: ARP m
   → `./kubeadm/cluster-up.sh` → `./calico/calico-up.sh`. The script's guardrail is there to
   stop you doing it by mistake, not to make the operation possible.
 - **No Cilium `loadBalancerClass`**: see the 🌐 section above. It is the #1 cause of an
-  `EXTERNAL-IP <pending>` that persists *after* installing MetalLB.
+  `EXTERNAL-IP <pending>` that persists *after* MetalLB is installed — and it only bites when
+  `Envoy-Proxy.yml` was applied by hand, since `platform-up.sh` strips the line for you.
 - **eBPF dataplane: tempting, ruled out.** It would require `bpfNetworkBootstrap: Enabled`,
   `kubeProxyManagement: Enabled` and a `FelixConfiguration` (`cgroupV2Path`), and it would take
   over kube-proxy — exactly what `KUBE_PROXY_REPLACEMENT=false` says is *not* happening here.
@@ -374,7 +379,7 @@ ping -c1 192.168.56.200                                   # from the host: ARP m
 | `calico-node` in `Init:` / `CreateContainerConfigError` | a read-only hostPath (typically the `flexvol-driver` if `flexVolumePath` was dropped) | check `kubectl get installation default -o yaml` ⇒ `flexVolumePath: None` |
 | Nodes `Ready` but DNS broken from a pod | NAT address elected for the tunnels | re-read the first ⚠️ Pitfalls bullet, then the annotations command in ✅ Verify |
 | `kubectl get tigerastatus` → `Degraded` | the operator explains why in the message | `kubectl get tigerastatus calico -o yaml` |
-| Gateway at `EXTERNAL-IP <pending>` | **expected without MetalLB** | 🌐 section, **both** steps |
+| Gateway at `EXTERNAL-IP <pending>` | **expected** right after this script; a problem only once MetalLB has run | 🌐 section, then [`../metallb/README.md`](../metallb/README.md) |
 | Pods `Pending` with `no IP addresses available in range` | the `/26` block on that node is exhausted, or the `IPPool` is too small | `kubectl get ipamblocks.crd.projectcalico.org` |
 
 ## 🧹 Uninstall
@@ -397,5 +402,6 @@ helm uninstall calico -n tigera-operator
 - [Calico — Configure BGP peering / advertise service IPs](https://docs.tigera.io/calico/latest/networking/configuring/bgp)
 - [Calico — Get started with NetworkPolicy](https://docs.tigera.io/calico/latest/network-policy/get-started/calico-policy/calico-network-policy)
 - [MetalLB — Layer 2 configuration](https://metallb.io/configuration/#layer-2-configuration)
+- [`../metallb/README.md`](../metallb/README.md) — the L2 announcer installed alongside Calico
 - [`../cilium/README.md`](../cilium/README.md) — the lab's default CNI, and its L2 announcement
 - [`../envoy-gateway/README.md`](../envoy-gateway/README.md) — the consumer of the `.200` VIP

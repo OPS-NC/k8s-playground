@@ -22,6 +22,11 @@ spec:
         replicas: 2
       envoyService:
         type: LoadBalancer
+        # Names the ONLY controller allowed to serve this Service. Correct with the lab default
+        # (CNI=cilium), and a trap with any other: MetalLB — the announcer ../metallb/ installs
+        # when CNI != cilium — would ignore the Service and the IP would stay <pending> next to
+        # a perfectly valid pool. platform-up.sh therefore DELETES this line in that case; if
+        # you apply this manifest by hand, delete it yourself.
         loadBalancerClass: io.cilium/l2-announcer
         externalTrafficPolicy: Cluster
 ---

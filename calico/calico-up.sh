@@ -20,8 +20,10 @@
 #    — non-existent on a VirtualBox host-only network. It has no equivalent of Cilium's
 #    L2/ARP announcement.
 #    Direct consequence: the Envoy Gateway Service stays on `EXTERNAL-IP <pending>` and no lab
-#    UI (Argo CD, Grafana, Vault, Longhorn…) is reachable until an L2 announcer — MetalLB — is
-#    installed ALONGSIDE. How to do it: README.md.
+#    UI (Argo CD, Grafana, Vault, Longhorn…) is reachable until an L2 announcer is installed
+#    ALONGSIDE. That announcer is ../metallb/, and platform-up.sh installs it right after this
+#    script whenever CNI != cilium — so the hole is only open if you run this script on its
+#    own. How to close it by hand: README.md, section 🌐.
 #
 # Order of the steps (each assumes the previous one):
 #   1. guard rails: binaries, apiserver, no other CNI already in place, kube-proxy present,
@@ -203,9 +205,13 @@ echo "  IPPool       : ${POD_CIDR} (VXLAN, natOutgoing) — must == the cluster'
 echo "  Autodetection: cidrs=${HOSTONLY_CIDR} (host-only network, NOT the NAT card)"
 echo
 printf '\033[1;33m  /!\\ Calico does NOT provide LoadBalancer Service IPs.\033[0m\n'
-echo "      As it stands, the Envoy Gateway Service will stay on EXTERNAL-IP <pending>"
-echo "      and no lab UI will be reachable. Two things are still missing:"
-echo "        1. install an L2 announcer (MetalLB) on the ${NETWORK}.200-${NETWORK}.230 range;"
-echo "        2. remove 'loadBalancerClass: io.cilium/l2-announcer' from"
+echo "      AT THIS POINT the Envoy Gateway Service would stay on EXTERNAL-IP <pending>"
+echo "      and no lab UI would be reachable. Two things are still missing:"
+echo "        1. an L2 announcer on the ${NETWORK}.200-${NETWORK}.230 range;"
+echo "        2. 'loadBalancerClass: io.cilium/l2-announcer' removed from"
 echo "           envoy-gateway/Envoy-Proxy.yml (a Cilium-specific class)."
-echo "      Detailed instructions: calico/README.md"
+echo
+echo "      ../platform-up.sh does BOTH by itself when CNI != cilium: if you got here"
+echo "      through it, metallb/metallb-up.sh runs next and you have nothing to do."
+echo "      If you ran THIS script on its own:  ./install.sh ${K8S_DISTRO} metallb"
+echo "      Details: calico/README.md (section 🌐)"

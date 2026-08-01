@@ -85,7 +85,9 @@ choses : le **domaine par défaut** (`talos.lab.example.io` / `kubeadm.lab.examp
 
 > ℹ️ Un seul détail dépend du CNI (pas de la distribution) : `loadBalancerClass:
 > io.cilium/l2-announcer` dans `Envoy-Proxy.yml`. `platform-up.sh` la RETIRE quand
-> `CNI != cilium`, sinon aucun autre annonceur (MetalLB) ne pourrait servir ce Service.
+> `CNI != cilium`, sinon l'annonceur qui sert ce Service dans ce cas —
+> [`../metallb/`](../metallb/LISEZ-MOI.md) — l'ignorerait et l'IP resterait `<pending>` avec un
+> pool parfaitement valide à côté.
 
 ## 🎓 Pas à pas guidé (formation)
 

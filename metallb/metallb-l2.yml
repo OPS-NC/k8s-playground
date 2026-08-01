@@ -1,0 +1,53 @@
+# metallb-l2.yml — the lab's "cloud provider" when the CNI is NOT Cilium: a range of IPs for
+# `type: LoadBalancer` Services + the ARP announcement that makes them reachable from the host.
+#
+# This is the STRICT equivalent of ../cilium/cilium-l2.yml, object for object:
+#
+#   CiliumLoadBalancerIPPool    ->  IPAddressPool     the range of addresses
+#   CiliumL2AnnouncementPolicy  ->  L2Advertisement   who announces it, and on which card
+#
+# Same range, same node selection, same interface — deliberately. Switching CNI must change the
+# CNI, not the address the `*.<LAB_DOMAIN>` wildcard DNS record points at: the Envoy Gateway
+# takes the FIRST IP of the pool on both paths (192.168.56.200 by default).
+#
+# The values written here are the lab DEFAULTS. `metallb/metallb-up.sh` substitutes them on the
+# fly, from the very same variables Cilium reads: the range comes from `LB_POOL_START` /
+# `LB_POOL_END` (lab.env) and the interface name from `HOSTONLY_IF` (_out/cluster.env, DETECTED
+# inside the VM on kubeadm; `enp0s8` on Talos).
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: lb-pool-56
+  namespace: metallb-system
+spec:
+  # MetalLB writes a range as `start-stop` in ONE string, where Cilium uses two fields.
+  addresses:
+  - "192.168.56.200-192.168.56.230"
+  # The Gateway Service asks for no particular address: it has to be served automatically, and
+  # what it gets is the first free IP of the pool.
+  autoAssign: true
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: l2-lb-workers
+  namespace: metallb-system
+spec:
+  # Without this the advertisement covers EVERY pool; naming it keeps the coupling explicit.
+  ipAddressPools:
+  - lb-pool-56
+  # No announcement from the control plane — the same choice as the Cilium policy.
+  # ⚠️ With WORKERS=0 this selector keeps NO node: nobody announces any more and the Gateway
+  #    Service stays unreachable. Remove the nodeSelectors in that case.
+  nodeSelectors:
+  - matchExpressions:
+    - key: node-role.kubernetes.io/control-plane
+      operator: DoesNotExist
+  # Announce on the host-only interface only — NEVER the NAT card `eth0`/`enp0s3`
+  # (10.0.2.15, the same address on every VM): the host does not see it.
+  # ⚠️ Unlike Cilium's `interfaces:`, this list holds PLAIN names, NOT regexes. Writing
+  #    `^enp0s8$` here matches no interface and the announcement is dropped in silence.
+  # The name is substituted by metallb-up.sh from HOSTONLY_IF.
+  interfaces:
+  - enp0s8

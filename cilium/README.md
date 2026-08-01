@@ -283,4 +283,6 @@ kubectl -n kube-system port-forward svc/hubble-ui 12000:80     # then http://loc
 - [Cilium — IPAM cluster-pool](https://docs.cilium.io/en/stable/network/concepts/ipam/cluster-pool/)
 - [Cilium — LoadBalancer IPAM](https://docs.cilium.io/en/stable/network/lb-ipam/)
 - [Cilium — L2 Announcements](https://docs.cilium.io/en/stable/network/l2-announcements/)
+- [`../metallb/README.md`](../metallb/README.md) — the same announcement, for the other CNIs
+  (**never** alongside this one: two announcers on one range is an ARP conflict)
 - [`../envoy-gateway/README.md`](../envoy-gateway/README.md) — the consumer of the `.200` VIP
