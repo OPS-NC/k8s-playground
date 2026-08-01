@@ -17,7 +17,9 @@
 #                          none. When the CNI does NOT announce, metallb/ is installed right
 #                          after it on the SAME range => a LoadBalancer IP in every case.
 #                          `METALLB=false` in lab.env opts out (you then have no LB IP).
-#   2. Envoy Gateway       controller + Gateway API CRDs + main-gateway (HTTP/HTTPS)
+#   2. Envoy Gateway       controller + Gateway API CRDs + main-gateway (HTTP/HTTPS), then the
+#                          `hubble.<LAB_DOMAIN>` route when CNI=cilium (step 1 could not create
+#                          it: the Gateway API CRDs did not exist yet)
 #   3. metrics-server      metrics.k8s.io (kubectl top)
 #   4. wildcard TLS        per `SELF_SIGNED` in lab.env:
 #                          true  -> local CA + openssl cert (self-signed/), NO cert-manager
@@ -280,6 +282,14 @@ if [ "$LB_ANNOUNCER" != "none" ]; then
 else
   echo "    No L2 announcer (CNI=${CNI}, METALLB=false): the Service will stay <pending>."
   echo "    Drop METALLB=false from lab.env to get one (see metallb/README.md)."
+fi
+
+# Hubble UI route. It belongs to cilium/, and cilium-up.sh applies it on its own when it can —
+# but at step [1/4] the Gateway API CRDs did not exist yet, so on a fresh install it could not.
+# Now that main-gateway is there, do it. Idempotent, so a re-run just re-applies it.
+if [ "$CNI" = "cilium" ]; then
+  echo "    HTTPRoute hubble.${LAB_DOMAIN} -> hubble-ui (see cilium/httproute.yaml)"
+  render "${REPO_ROOT}/cilium/httproute.yaml" | kubectl apply -f -
 fi
 
 log "[3/4] metrics-server (--kubelet-insecure-tls: self-signed kubelet certificates)"

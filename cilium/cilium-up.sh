@@ -8,12 +8,15 @@
 #
 #   ./cilium/cilium-up.sh <talos|kubeadm>     (or ./install.sh <distro> cilium)
 #
-# Does two things (the 2nd assumes the 1st):
+# Does three things (each one assumes the previous):
 #   1. Cilium through Helm: the CNI (=> nodes Ready), eBPF kube-proxy replacement per
 #      KUBE_PROXY_REPLACEMENT (kubeadm only), L2 announcement enabled, and the host-only
 #      interface pinned (otherwise Cilium picks the 10.0.2.15 NAT card, identical on every VM
 #      => broken cross-node traffic and DNS).
 #   2. L2 pool: CiliumLoadBalancerIPPool (.200-.230) + CiliumL2AnnouncementPolicy (ARP).
+#   3. HTTPRoute `hubble` => the Hubble UI at hubble.<LAB_DOMAIN>, but ONLY if the Gateway API
+#      CRDs are already there — on a fresh platform-up.sh they are not yet, and it is
+#      platform-up.sh that creates the route at step [2/4]. See the block at the end.
 #
 # Differences carried by the profile (lib/profiles/):
 #   - talos  : ipam.mode=kubernetes, kube-proxy kept, + the values Cilium REQUIRES on Talos
@@ -144,5 +147,22 @@ sed -e "s/192\.168\.56\.200/${LB_POOL_START}/g" \
     -e "s/enp0s8/${HOSTONLY_IF}/g" \
     "${HERE}/cilium-l2.yml" | kubectl apply -f -
 
+# --- Hubble UI route ---------------------------------------------------------
+# `hubble.<LAB_DOMAIN>` on main-gateway. Conditional, because of an ORDERING constraint that
+# only shows up on a fresh install: platform-up.sh calls this script at step [1/4], and it is
+# step [2/4] that installs Envoy Gateway — hence the Gateway API CRDs. Applying the route here
+# would then fail on `no matches for kind "HTTPRoute"`. So we apply it when the CRD is there
+# (re-run, or a direct `./install.sh <distro> cilium` on a platform already up) and leave it to
+# platform-up.sh otherwise. Both paths are `kubectl apply`: doing it twice costs nothing.
+if kubectl get crd httproutes.gateway.networking.k8s.io >/dev/null 2>&1; then
+  log "HTTPRoute hubble.${LAB_DOMAIN} (Hubble UI)"
+  render "${HERE}/httproute.yaml" | kubectl apply -f -
+else
+  echo "    Gateway API not installed yet: the hubble.${LAB_DOMAIN} route will be created by"
+  echo "    platform-up.sh once main-gateway is up (step [2/4])."
+fi
+
 log "Cilium installed (CNI + L2 pool)."
+echo "  Hubble UI  : https://hubble.${LAB_DOMAIN}   (NO authentication at all!)"
+echo "  Without expo: kubectl -n kube-system port-forward svc/hubble-ui 12000:80"
 echo "  Diagnostics: kubectl -n kube-system exec ds/cilium -- cilium-dbg status --verbose"

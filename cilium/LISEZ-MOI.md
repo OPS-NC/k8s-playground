@@ -15,7 +15,8 @@
 - **IP LoadBalancer** : un pool `.200-.230` remplace le cloud provider absent.
 - **Annonce L2 (ARP)** : l'IP devient joignable depuis l'hôte, donc via Tailscale
   (cf. [`../LISEZ-MOI.md`](../LISEZ-MOI.md), section « Accès distant »).
-- **Observabilité réseau** : Hubble (relay + UI) est activé, pratique pour montrer les flux.
+- **Observabilité réseau** : Hubble (relay + UI) est activé et l'UI est exposée sur
+  `hubble.<LAB_DOMAIN>` — pratique pour montrer les flux, et **sans aucune authentification**.
 
 ## 📋 Prérequis
 
@@ -234,10 +235,32 @@ kubectl -n kube-system exec ds/cilium -- cilium-dbg service list   # vide => auc
 Avec `KUBE_PROXY_REPLACEMENT=true` il n'y a **aucun DaemonSet `kube-proxy`** dans `kube-system`,
 et c'est l'état attendu — `cilium-dbg status` doit afficher `KubeProxyReplacement: True`.
 
-## 🌐 Hubble UI (non exposée)
+## 🌐 Hubble UI
 
-Hubble est activé mais **aucune `HTTPRoute` ne l'expose** : c'est volontaire (l'UI n'a pas
-d'authentification). Accès ponctuel par port-forward :
+Hubble (relay + UI) est activé, et `cilium-up.sh` l'expose via la Gateway API sur
+**`https://hubble.<LAB_DOMAIN>`** — l'`HTTPRoute` `hubble` de [`httproute.yaml`](httproute.yaml),
+dans `kube-system`, rattachée au listener `https` de `main-gateway`. Le TLS est le wildcard
+`*.<LAB_DOMAIN>` que le listener porte déjà : rien d'autre à émettre.
+
+```bash
+kubectl -n kube-system get httproute hubble
+curl -sk -o /dev/null -w '%{http_code}\n' "https://hubble.$LAB_DOMAIN/"   # 200
+```
+
+> ⚠️ **L'UI Hubble n'a aucune authentification**, et elle montre les flux de *tous* les
+> namespaces. Derrière cette Gateway, elle est joignable par quiconque atteint la VIP. Sur un
+> lab c'est justement l'intérêt ; ailleurs, mets une `SecurityPolicy` Envoy Gateway (Basic Auth
+> / OIDC) devant, ou supprime la route :
+> `kubectl -n kube-system delete httproute hubble`.
+
+**L'ordre, si tu lis les scripts** : `platform-up.sh` appelle `cilium-up.sh` à l'étape `[1/4]`,
+et c'est l'étape `[2/4]` qui installe Envoy Gateway — donc sur une install *neuve*, les CRD de
+la Gateway API n'existent pas encore quand Cilium est posé. `cilium-up.sh` n'applique donc la
+route que s'il trouve la CRD `httproutes`, et `platform-up.sh` l'applique lui-même juste après
+que `main-gateway` soit debout. Dans les deux cas la route existe à la fin de `platform-up.sh`.
+
+Sans exposition du tout (ou avant que la couche platform soit debout), le port-forward marche
+toujours :
 
 ```bash
 kubectl -n kube-system port-forward svc/hubble-ui 12000:80     # puis http://localhost:12000

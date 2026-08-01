@@ -1,0 +1,35 @@
+# Exposes the Hubble UI (Cilium's network flow observability) over HTTPS at
+# `hubble.lab.example.io`, behind `main-gateway` (Envoy Gateway). TLS is the
+# `*.lab.example.io` wildcard already carried by the `https` listener — no Certificate to
+# create, the wildcard covers `hubble.lab.example.io`.
+#
+# Applied by cilium-up.sh, which renders the neutral domain into `LAB_DOMAIN`. Note that
+# cilium-up.sh runs BEFORE the Gateway API CRDs exist on a fresh platform-up.sh (step [1/4]
+# against step [2/4]): in that case it is platform-up.sh that applies this file, right after
+# the Gateway is up.
+#
+# The route lives in `kube-system` (where the chart puts hubble-ui) but attaches to the Gateway
+# of `envoy-gateway-system`: possible because `main-gateway` opens its listeners to `from: All`.
+# Backend in the same namespace as the route → no ReferenceGrant.
+#
+# ⚠️ The Hubble UI has NO built-in authentication, and it shows every flow in the cluster —
+# including the namespaces the viewer has no business seeing. Behind this Gateway it is
+# reachable by anyone who can reach the VIP. To protect it, add an Envoy Gateway
+# SecurityPolicy (Basic Auth / OIDC) — see the README.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hubble
+  namespace: kube-system
+spec:
+  parentRefs:
+    - name: main-gateway
+      namespace: envoy-gateway-system
+      sectionName: https          # targets the TLS :443 listener
+  hostnames:
+    - hubble.lab.example.io      # matches the *.lab.example.io wildcard
+  rules:
+    - backendRefs:
+        # hubble-ui — plain HTTP (80), Envoy does the HTTPS in front.
+        - name: hubble-ui
+          port: 80
