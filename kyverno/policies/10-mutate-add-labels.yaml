@@ -1,22 +1,22 @@
-# 10 — MUTATE : ajoute automatiquement un label de traçabilité aux Pods à l'admission.
+# 10 — MUTATE: automatically adds a traceability label to Pods at admission time.
 #
-# Pédagogie : le 2e superpouvoir de Kyverno après validate. `mutate` RÉÉCRIT la ressource
-# entrante. Ici on ajoute `lab.k8s/managed-by: kyverno` s'il est absent (`+(...)` =
-# "ajoute cette clé si elle n'existe pas, ne l'écrase jamais"). Inoffensif : un label de
-# plus ne casse aucun workload. Ne s'applique qu'aux NOUVEAUX Pods (mutation à l'admission).
+# Teaching point: Kyverno's second superpower after validate. `mutate` REWRITES the incoming
+# resource. Here we add `lab.k8s/managed-by: kyverno` when it is missing (`+(...)` = "add this
+# key if it does not exist, never overwrite it"). Harmless: one more label breaks no workload.
+# It only applies to NEW Pods (mutation happens at admission).
 #
-# Démo : créez un Pod sans ce label, puis `kubectl get pod <x> --show-labels` → il est là.
+# Demo: create a Pod without that label, then `kubectl get pod <x> --show-labels` → it is there.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
   name: add-managed-by-label
   annotations:
     policies.kyverno.io/title: Add managed-by label (mutate)
-    policies.kyverno.io/category: Bonnes pratiques
+    policies.kyverno.io/category: Best practices
     policies.kyverno.io/severity: low
     policies.kyverno.io/description: >-
-      Ajoute le label `lab.k8s/managed-by: kyverno` aux Pods qui ne l'ont pas.
-      Démonstration de la mutation à l'admission.
+      Adds the `lab.k8s/managed-by: kyverno` label to Pods that do not have it.
+      A demonstration of mutation at admission time.
 spec:
   rules:
     - name: add-label

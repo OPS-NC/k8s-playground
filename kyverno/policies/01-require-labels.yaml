@@ -1,24 +1,24 @@
-# 01 — VALIDATE (Audit) : exige le label standard `app.kubernetes.io/name` sur les Pods.
+# 01 — VALIDATE (Audit): requires the standard `app.kubernetes.io/name` label on Pods.
 #
-# Pédagogie : la brique de base de Kyverno. `validate` + `pattern` = "la ressource DOIT
-# ressembler à ça". `validationFailureAction: Audit` => on N'EMPÊCHE PAS la création, on
-# consigne juste un résultat `fail` dans un PolicyReport (visible dans l'UI). Passe en
-# `Enforce` pour bloquer réellement (à faire en connaissance de cause : ça refusera tout
-# Pod non conforme, y compris ceux des autres démos du lab).
+# Teaching point: Kyverno's basic building block. `validate` + `pattern` = "the resource MUST
+# look like this". `validationFailureAction: Audit` => we DO NOT prevent creation, we merely
+# record a `fail` result in a PolicyReport (visible in the UI). Switch it to `Enforce` to
+# actually block (do that knowingly: it will refuse every non-compliant Pod, including those
+# of the lab's other demos).
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
   name: require-labels
   annotations:
     policies.kyverno.io/title: Require app.kubernetes.io/name label
-    policies.kyverno.io/category: Bonnes pratiques
+    policies.kyverno.io/category: Best practices
     policies.kyverno.io/severity: medium
     policies.kyverno.io/description: >-
-      Tout Pod doit porter le label `app.kubernetes.io/name` (traçabilité,
-      sélecteurs, dashboards). Mode Audit : signale sans bloquer.
+      Every Pod must carry the `app.kubernetes.io/name` label (traceability, selectors,
+      dashboards). Audit mode: reports without blocking.
 spec:
   validationFailureAction: Audit
-  background: true              # applique aussi la règle en scan de fond sur l'existant
+  background: true              # also applies the rule as a background scan on existing objects
   rules:
     - name: check-app-name-label
       match:
@@ -26,8 +26,8 @@ spec:
           - resources:
               kinds: [Pod]
       validate:
-        message: "Le label `app.kubernetes.io/name` est requis."
+        message: "The `app.kubernetes.io/name` label is required."
         pattern:
           metadata:
             labels:
-              app.kubernetes.io/name: "?*"    # ?* = au moins un caractère
+              app.kubernetes.io/name: "?*"    # ?* = at least one character
