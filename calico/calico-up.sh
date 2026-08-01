@@ -1,42 +1,43 @@
 #!/usr/bin/env bash
 #
-# calico-up.sh — installe Calico comme CNI du lab, via l'opérateur Tigera, sur un cluster
-# bootstrapé SANS CNI (`CNI=calico` ou `CNI=none` dans lab.env) :
-#   - kubeadm : `kubeadm init` n'installe jamais de réseau pod ;
-#   - Talos   : le bootstrap met `cluster.network.cni.name: none`.
-# Dans les deux cas les nodes restent NotReady jusqu'à ce script.
+# calico-up.sh — installs Calico as the lab's CNI, through the Tigera operator, on a cluster
+# bootstrapped WITHOUT a CNI (`CNI=calico` or `CNI=none` in lab.env):
+#   - kubeadm: `kubeadm init` never installs a pod network;
+#   - Talos  : the bootstrap sets `cluster.network.cni.name: none`.
+# In both cases the nodes stay NotReady until this script has run.
 #
-#   ./calico/calico-up.sh <talos|kubeadm>     (ou ./install.sh <distro> calico)
+#   ./calico/calico-up.sh <talos|kubeadm>     (or ./install.sh <distro> calico)
 #
-# ⚠️ Sur kubeadm, INCOMPATIBLE avec KUBE_PROXY_REPLACEMENT=true : seul Cilium sait remplacer
-#    kube-proxy. `kubeadm/cluster-up.sh` REFUSE déjà de démarrer sur ce couple, et ce script
-#    le revérifie — un cluster sans kube-proxy ni remplaçant n'a plus aucune ClusterIP.
-#    (Sur Talos la question ne se pose pas : kube-proxy est toujours posé au bootstrap.)
+# ⚠️ On kubeadm, INCOMPATIBLE with KUBE_PROXY_REPLACEMENT=true: only Cilium knows how to
+#    replace kube-proxy. `kubeadm/cluster-up.sh` already REFUSES to start on that pair, and
+#    this script re-checks it — a cluster with neither kube-proxy nor a replacement has no
+#    working ClusterIP left.
+#    (On Talos the question does not arise: kube-proxy is always installed at bootstrap.)
 #
-# ⚠️ PÉRIMÈTRE : ce script installe le CNI, RIEN D'AUTRE.
-#    Calico apporte le réseau pod, le routage et les NetworkPolicy. Il n'attribue et
-#    n'annonce AUCUNE IP de Service `LoadBalancer` : Calico ne sait le faire qu'en BGP,
-#    ce qui demande un routeur pair — inexistant sur un réseau host-only VirtualBox. Il
-#    n'a pas d'équivalent de l'annonce L2/ARP de Cilium.
-#    Conséquence directe : le Service du Gateway Envoy reste en `EXTERNAL-IP <pending>`
-#    et aucune UI du lab (Argo CD, Grafana, Vault, Longhorn…) n'est joignable tant qu'un
-#    annonceur L2 — MetalLB — n'est pas installé À CÔTÉ. Marche à suivre : README.md.
+# ⚠️ SCOPE: this script installs the CNI, NOTHING ELSE.
+#    Calico brings the pod network, the routing and NetworkPolicies. It assigns and announces
+#    NO `LoadBalancer` Service IP: Calico can only do that over BGP, which needs a peer router
+#    — non-existent on a VirtualBox host-only network. It has no equivalent of Cilium's
+#    L2/ARP announcement.
+#    Direct consequence: the Envoy Gateway Service stays on `EXTERNAL-IP <pending>` and no lab
+#    UI (Argo CD, Grafana, Vault, Longhorn…) is reachable until an L2 announcer — MetalLB — is
+#    installed ALONGSIDE. How to do it: README.md.
 #
-# Ordre des étapes (chacune suppose la précédente) :
-#   1. garde-fous : binaires, apiserver, aucun autre CNI déjà en place, kube-proxy présent,
-#      CIDR pod cohérent avec celui du cluster (`networking.podSubnet` de kubeadm, lu dans
-#      `_out/cluster.env` ; `cluster.network.podSubnets` de Talos, lu dans
-#      `_out/controlplane.yaml`) ;
-#   2. chart `tigera-operator` (Helm) => l'opérateur + les CRD `operator.tigera.io` ;
-#   3. attente que les CRD `installations` et `apiservers.operator.tigera.io` soient
-#      Established — c'est l'opérateur lui-même qui les crée (`-manage-crds=true`), donc
-#      elles n'existent pas avant que son pod tourne ;
-#   4. `installation.yaml` (CIDR substitués) + `apiserver.yaml` => l'opérateur déploie
-#      calico-node et le calico-apiserver ;
-#   5. attentes bornées : DaemonSet calico-node déployé, puis tous les nodes `Ready` ;
-#   6. résumé + rappel de ce qui manque pour que les UI du lab soient joignables.
+# Order of the steps (each assumes the previous one):
+#   1. guard rails: binaries, apiserver, no other CNI already in place, kube-proxy present,
+#      pod CIDR consistent with the cluster's (kubeadm's `networking.podSubnet`, read from
+#      `_out/cluster.env`; Talos' `cluster.network.podSubnets`, read from
+#      `_out/controlplane.yaml`);
+#   2. `tigera-operator` chart (Helm) => the operator + the `operator.tigera.io` CRDs;
+#   3. wait for the `installations` and `apiservers.operator.tigera.io` CRDs to be Established
+#      — the operator itself creates them (`-manage-crds=true`), so they do not exist before
+#      its pod runs;
+#   4. `installation.yaml` (CIDRs substituted) + `apiserver.yaml` => the operator deploys
+#      calico-node and the calico-apiserver;
+#   5. bounded waits: calico-node DaemonSet rolled out, then every node `Ready`;
+#   6. summary + a reminder of what is still missing for the lab UIs to be reachable.
 #
-# Idempotent : `helm upgrade --install` + `kubectl apply`. Relançable sans casse.
+# Idempotent: `helm upgrade --install` + `kubectl apply`. Safe to re-run.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -44,94 +45,94 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${HERE}/../lib/common.sh"
 k8s_init "$@"
 
-# --- Version épinglée (overridable par variable d'env) ----------------------
-# Chart ET appVersion de Calico : `helm search repo projectcalico/tigera-operator --versions`.
+# --- Pinned version (overridable through an environment variable) ------------
+# Calico chart AND appVersion: `helm search repo projectcalico/tigera-operator --versions`.
 CALICO_VERSION="${CALICO_VERSION:-v3.32.1}"
 
-# --- Paramètres du lab ------------------------------------------------------
-# Réseau host-only : sert à épingler l'autodétection d'adresse de Calico (cf. installation.yaml).
+# --- Lab parameters ---------------------------------------------------------
+# Host-only network: used to pin Calico's address autodetection (see installation.yaml).
 NETWORK="$(read_param NETWORK 192.168.56)"
 HOSTONLY_CIDR="${HOSTONLY_CIDR:-${NETWORK}.0/24}"
-# CIDR des pods : doit coller au CIDR réellement utilisé par le cluster (défaut 10.244.0.0/16).
+# Pod CIDR: must match the CIDR the cluster actually uses (default 10.244.0.0/16).
 POD_CIDR="$(read_param POD_CIDR "$DEFAULT_POD_CIDR")"
 
-# --- Pré-requis -------------------------------------------------------------
+# --- Prerequisites ----------------------------------------------------------
 need kubectl helm
 require_apiserver
 
-# --- Garde-fou : un seul CNI par cluster ------------------------------------
-# Deux CNI installés en parallèle se disputent /etc/cni/net.d et les routes : le réseau
-# pod devient incohérent et il n'y a pas de retour en arrière propre. On refuse net.
-autre_cni="$(kubectl get daemonsets -A -o name 2>/dev/null | grep -iE 'cilium|flannel' || true)"
-if [ -n "$autre_cni" ]; then
-  fail "un autre CNI est déjà installé (${autre_cni}).
-        Changer de CNI n'est PAS une bascule à chaud : remets le cluster à plat, mets
-        CNI=calico dans lab.env, puis rebootstrape (${CLUSTER_RESET_HINT})."
+# --- Guard rail: one CNI per cluster ----------------------------------------
+# Two CNIs installed side by side fight over /etc/cni/net.d and the routes: the pod network
+# becomes inconsistent and there is no clean way back. We refuse outright.
+other_cni="$(kubectl get daemonsets -A -o name 2>/dev/null | grep -iE 'cilium|flannel' || true)"
+if [ -n "$other_cni" ]; then
+  fail "another CNI is already installed (${other_cni}).
+        Switching CNI is NOT a runtime toggle: flatten the cluster, set CNI=calico in
+        lab.env, then bootstrap again (${CLUSTER_RESET_HINT})."
 fi
 
-# --- Garde-fou : Calico exige kube-proxy ------------------------------------
-# Calico ne remplace pas kube-proxy (son dataplane eBPF le pourrait, mais il est coupé
-# ici — cf. installation.yaml). Sans kube-proxy ET sans remplaçant, plus aucune ClusterIP
-# ne répond : CoreDNS lui-même ne joint plus l'apiserver.
-# Le couple KUBE_PROXY_REPLACEMENT=true + calico n'existe QUE sur kubeadm (sur Talos,
-# kube-proxy est toujours posé par le bootstrap) : cluster-up.sh le refuse déjà, mais
-# lab.env a pu être édité depuis.
+# --- Guard rail: Calico requires kube-proxy ---------------------------------
+# Calico does not replace kube-proxy (its eBPF dataplane could, but it is turned off here —
+# see installation.yaml). Without kube-proxy AND without a replacement no ClusterIP answers
+# any more: CoreDNS itself cannot reach the apiserver.
+# The KUBE_PROXY_REPLACEMENT=true + calico pair only exists on kubeadm (on Talos kube-proxy is
+# always installed at bootstrap): cluster-up.sh already refuses it, but lab.env may have been
+# edited since.
 if [ "$KUBE_PROXY_REPLACEABLE" = "true" ] && [ "$(read_param KUBE_PROXY_REPLACEMENT false)" = "true" ]; then
-  fail "KUBE_PROXY_REPLACEMENT=true est INCOMPATIBLE avec CNI=calico.
-        Seul Cilium sait remplacer kube-proxy dans ce lab. Choisis :
-          - CNI=cilium                    (garder le remplacement eBPF), ou
-          - KUBE_PROXY_REPLACEMENT=false  (garder kube-proxy et Calico)
-        puis reconstruis le cluster (${CLUSTER_RESET_HINT})."
+  fail "KUBE_PROXY_REPLACEMENT=true is INCOMPATIBLE with CNI=calico.
+        Only Cilium knows how to replace kube-proxy in this lab. Pick either:
+          - CNI=cilium                    (keep the eBPF replacement), or
+          - KUBE_PROXY_REPLACEMENT=false  (keep kube-proxy and Calico)
+        then rebuild the cluster (${CLUSTER_RESET_HINT})."
 fi
 if ! kubectl -n kube-system get daemonset/kube-proxy >/dev/null 2>&1; then
-  fail "aucun DaemonSet kube-proxy dans kube-system : ce cluster tourne sans kube-proxy
-        (sur kubeadm : \`kubeadm init --skip-phases=addon/kube-proxy\`, soit
-        KUBE_PROXY_REPLACEMENT=true). Calico ne peut pas le remplacer — reconstruis le
-        cluster avec KUBE_PROXY_REPLACEMENT=false."
+  fail "no kube-proxy DaemonSet in kube-system: this cluster runs without kube-proxy
+        (on kubeadm: \`kubeadm init --skip-phases=addon/kube-proxy\`, i.e.
+        KUBE_PROXY_REPLACEMENT=true). Calico cannot replace it — rebuild the cluster with
+        KUBE_PROXY_REPLACEMENT=false."
 fi
 
-# --- Garde-fou : le pool Calico DOIT couvrir le CIDR pod du cluster ---------
-# Sinon kubelet alloue les IP de pod dans un CIDR que Calico n'a pas programmé : routes
-# et tunnels VXLAN pointent dans le vide.
-# Les faits ne sont pas au même endroit selon la distribution :
-#   - kubeadm : `_out/cluster.env` (POD_CIDR effectivement passé à `kubeadm init`) ;
-#   - Talos   : `_out/controlplane.yaml` (`cluster.network.podSubnets`).
-pod_cidr_reel=""
+# --- Guard rail: the Calico pool MUST cover the cluster's pod CIDR ----------
+# Otherwise the kubelet allocates pod IPs in a CIDR Calico never programmed: routes and VXLAN
+# tunnels point nowhere.
+# The facts are not in the same place depending on the distribution:
+#   - kubeadm: `_out/cluster.env` (the POD_CIDR actually passed to `kubeadm init`);
+#   - Talos  : `_out/controlplane.yaml` (`cluster.network.podSubnets`).
+actual_pod_cidr=""
 if [ "$K8S_DISTRO" = "kubeadm" ]; then
-  pod_cidr_reel="$(read_cluster_env POD_CIDR)"
-  source_cidr="${CLUSTER_ENV_FILE}"
+  actual_pod_cidr="$(read_cluster_env POD_CIDR)"
+  cidr_source="${CLUSTER_ENV_FILE}"
 elif [ -f "${LAB_DIR}/_out/controlplane.yaml" ]; then
-  pod_cidr_reel="$(awk '/podSubnets:/{f=1;next} f && $1=="-" {print $2; exit}' \
+  actual_pod_cidr="$(awk '/podSubnets:/{f=1;next} f && $1=="-" {print $2; exit}' \
     "${LAB_DIR}/_out/controlplane.yaml" 2>/dev/null || true)"
-  source_cidr="${LAB_DIR}/_out/controlplane.yaml"
+  cidr_source="${LAB_DIR}/_out/controlplane.yaml"
 fi
-if [ -n "$pod_cidr_reel" ] && [ "$pod_cidr_reel" != "$POD_CIDR" ]; then
-  fail "incohérence de CIDR pod : le cluster annonce ${pod_cidr_reel}
-        (${source_cidr}) alors que l'IPPool Calico vaudrait ${POD_CIDR}.
-        Relance avec POD_CIDR=${pod_cidr_reel} ./calico/calico-up.sh ${K8S_DISTRO}"
+if [ -n "$actual_pod_cidr" ] && [ "$actual_pod_cidr" != "$POD_CIDR" ]; then
+  fail "pod CIDR mismatch: the cluster advertises ${actual_pod_cidr}
+        (${cidr_source}) while the Calico IPPool would be ${POD_CIDR}.
+        Re-run with POD_CIDR=${actual_pod_cidr} ./calico/calico-up.sh ${K8S_DISTRO}"
 fi
 
 # ============================================================================
-log "[1/4] Opérateur Tigera ${CALICO_VERSION} (chart projectcalico/tigera-operator)"
-# Namespace créé AVANT le chart : il porte les labels PodSecurity `privileged` que réclame le
-# pod de l'opérateur (hostNetwork + hostPath) : EXIGÉ sur Talos (défaut cluster `baseline`),
-# simple documentation d'intention sur kubeadm (aucun niveau appliqué par défaut).
-# `helm --create-namespace` ne poserait aucun label. Cf. namespace.yaml.
+log "[1/4] Tigera operator ${CALICO_VERSION} (projectcalico/tigera-operator chart)"
+# Namespace created BEFORE the chart: it carries the `privileged` PodSecurity labels the
+# operator pod needs (hostNetwork + hostPath): REQUIRED on Talos (cluster default `baseline`),
+# plain documentation of intent on kubeadm (no level enforced by default).
+# `helm --create-namespace` would set no label at all. See namespace.yaml.
 kubectl apply -f "${HERE}/namespace.yaml"
 helm repo add projectcalico https://docs.tigera.io/calico/charts >/dev/null 2>&1 || true
 helm repo update projectcalico >/dev/null
-# Les QUATRE CR du chart (Installation, APIServer, Goldmane, Whisker) sont coupées ici, et
-# c'est structurel : le chart ne livre aucun dossier `crds/`, c'est l'opérateur qui crée les
-# CRD `operator.tigera.io` à son démarrage (`-manage-crds=true`). Toute CR rendue par Helm
-# sur un cluster neuf échoue donc sur « no matches for kind ... ensure CRDs are installed
-# first », avant même la création du namespace.
-# - installation.enabled=false : la CR Installation vient de notre installation.yaml (un seul
-#   propriétaire de l'objet, et un fichier relisible plutôt que des --set) ;
-# - apiServer.enabled=false : idem, la CR vient de notre apiserver.yaml, appliquée à l'étape
-#   [3/4] une fois les CRD présentes. Le calico-apiserver EST bien déployé — il expose
-#   projectcalico.org/v3 (IPPool / NetworkPolicy Calico au kubectl, sans calicoctl) ;
-# - goldmane/whisker : l'UI de flux de Calico, coupée pour garder le lab léger — la rallumer
-#   demande de sortir ses CR de la même façon (cf. README.md).
+# All FOUR chart CRs (Installation, APIServer, Goldmane, Whisker) are turned off here, and
+# that is structural: the chart ships no `crds/` directory, it is the operator that creates
+# the `operator.tigera.io` CRDs when it starts (`-manage-crds=true`). Any CR rendered by Helm
+# on a fresh cluster therefore fails with "no matches for kind ... ensure CRDs are installed
+# first", before the namespace is even created.
+# - installation.enabled=false: the Installation CR comes from our installation.yaml (a single
+#   owner for the object, and a re-readable file rather than a pile of --set);
+# - apiServer.enabled=false: same, the CR comes from our apiserver.yaml, applied at step [3/4]
+#   once the CRDs are there. The calico-apiserver IS deployed — it exposes projectcalico.org/v3
+#   (Calico IPPool / NetworkPolicy through kubectl, no calicoctl needed);
+# - goldmane/whisker: Calico's flow UI, turned off to keep the lab light — turning it back on
+#   means extracting its CRs the same way (see README.md).
 helm upgrade --install calico projectcalico/tigera-operator \
   --namespace tigera-operator --create-namespace \
   --version "${CALICO_VERSION}" \
@@ -139,14 +140,14 @@ helm upgrade --install calico projectcalico/tigera-operator \
   --set apiServer.enabled=false \
   --set goldmane.enabled=false \
   --set whisker.enabled=false
-# L'opérateur tourne en hostNetwork : il démarre même sans CNI (c'est ce qui rend
-# l'amorçage possible). S'il ne démarre pas, tout le reste est inutile => on échoue.
+# The operator runs on hostNetwork: it starts even without a CNI (that is what makes the
+# bootstrap possible). If it does not start, everything else is pointless => we fail.
 kubectl -n tigera-operator rollout status deploy/tigera-operator --timeout=300s \
-  || fail "l'opérateur Tigera n'a pas démarré (kubectl -n tigera-operator describe pods)."
+  || fail "the Tigera operator did not start (kubectl -n tigera-operator describe pods)."
 
-log "[2/4] Attente des CRD operator.tigera.io (créées par l'opérateur, -manage-crds=true)"
-# Les deux CRD dont on applique une CR à l'étape suivante. Attendre `installations` seule ne
-# suffit pas : l'`apiserver.yaml` échouerait si sa CRD n'était pas encore là.
+log "[2/4] Waiting for the operator.tigera.io CRDs (created by the operator, -manage-crds=true)"
+# The two CRDs whose CR we apply at the next step. Waiting for `installations` alone is not
+# enough: `apiserver.yaml` would fail if its CRD were not there yet.
 for crd in installations.operator.tigera.io apiservers.operator.tigera.io; do
   crd_ok=0
   for _ in $(seq 1 60); do
@@ -154,56 +155,57 @@ for crd in installations.operator.tigera.io apiservers.operator.tigera.io; do
     sleep 5
   done
   [ "$crd_ok" -eq 1 ] \
-    || fail "CRD ${crd} absente après 5 min.
-        Regarde les logs : kubectl -n tigera-operator logs deploy/tigera-operator"
+    || fail "CRD ${crd} missing after 5 min.
+        Check the logs: kubectl -n tigera-operator logs deploy/tigera-operator"
   kubectl wait --for=condition=Established "crd/${crd}" --timeout=60s \
-    || fail "CRD ${crd} présente mais jamais Established."
+    || fail "CRD ${crd} present but never Established."
 done
 
-log "[3/4] CR Installation + APIServer (IPPool ${POD_CIDR}, VXLAN, autodétection sur ${HOSTONLY_CIDR})"
-# Les CIDR versionnés dans installation.yaml sont les défauts du lab ; on les remplace par
-# ceux calculés plus haut (NETWORK de lab.env / POD_CIDR), commentaires inclus.
+log "[3/4] Installation + APIServer CRs (IPPool ${POD_CIDR}, VXLAN, autodetection on ${HOSTONLY_CIDR})"
+# The CIDRs versioned in installation.yaml are the lab defaults; we replace them with the ones
+# computed above (NETWORK from lab.env / POD_CIDR), comments included.
 sed -e "s#192\.168\.56\.0/24#${HOSTONLY_CIDR}#g" \
     -e "s#10\.244\.0\.0/16#${POD_CIDR}#g" \
     "${HERE}/installation.yaml" | kubectl apply -f -
-# CR APIServer : sortie du chart pour la même raison que l'Installation (cf. apiserver.yaml).
-# Elle déploie le calico-apiserver => `kubectl get ippools.projectcalico.org` fonctionne.
+# APIServer CR: taken out of the chart for the same reason as the Installation (see
+# apiserver.yaml). It deploys the calico-apiserver => `kubectl get ippools.projectcalico.org`
+# works.
 kubectl apply -f "${HERE}/apiserver.yaml"
 
-log "[4/4] Attente du déploiement de calico-node puis des nodes Ready"
-# L'opérateur crée le DaemonSet dans le namespace calico-system : il n'existe pas
-# immédiatement après l'apply, d'où la boucle bornée avant le rollout status.
+log "[4/4] Waiting for calico-node to roll out, then for the nodes to be Ready"
+# The operator creates the DaemonSet in the calico-system namespace: it does not exist
+# immediately after the apply, hence the bounded loop before the rollout status.
 ds_ok=0
 for _ in $(seq 1 60); do
   kubectl -n calico-system get daemonset/calico-node >/dev/null 2>&1 && { ds_ok=1; break; }
   sleep 5
 done
 [ "$ds_ok" -eq 1 ] \
-  || fail "DaemonSet calico-system/calico-node jamais créé après 5 min.
-        Vérifie l'état de la CR : kubectl get tigerastatus
-        et les logs : kubectl -n tigera-operator logs deploy/tigera-operator"
-# 600 s : premier pull des images calico/node sur chaque node (8 VM, réseau NAT).
+  || fail "DaemonSet calico-system/calico-node never created after 5 min.
+        Check the CR status: kubectl get tigerastatus
+        and the logs: kubectl -n tigera-operator logs deploy/tigera-operator"
+# 600 s: first pull of the calico/node images on every node (8 VMs, NAT network).
 kubectl -n calico-system rollout status daemonset/calico-node --timeout=600s \
-  || fail "calico-node n'est pas prêt sur tous les nodes.
+  || fail "calico-node is not ready on every node.
         kubectl -n calico-system get pods -o wide
         kubectl -n calico-system logs ds/calico-node -c calico-node --tail=50"
-# C'est le CNI qui débloque les nodes : sans lui ils restent NotReady.
+# It is the CNI that unblocks the nodes: without it they stay NotReady.
 kubectl wait --for=condition=Ready nodes --all --timeout=300s \
-  || fail "des nodes sont restés NotReady malgré calico-node prêt (kubectl get nodes)."
+  || fail "some nodes stayed NotReady even though calico-node is ready (kubectl get nodes)."
 
 # ============================================================================
-log "Calico ${CALICO_VERSION} installé (CNI + NetworkPolicy)."
+log "Calico ${CALICO_VERSION} installed (CNI + NetworkPolicy)."
 echo "  Nodes        : $(kubectl get nodes --no-headers | grep -c ' Ready ')/$(kubectl get nodes --no-headers | wc -l) Ready"
 ds_ready="$(kubectl -n calico-system get daemonset/calico-node \
   -o jsonpath='{.status.numberReady}/{.status.desiredNumberScheduled}' 2>/dev/null || true)"
-echo "  calico-node  : ${ds_ready} prêts"
-echo "  IPPool       : ${POD_CIDR} (VXLAN, natOutgoing) — doit == CIDR pod du cluster"
-echo "  Autodétection: cidrs=${HOSTONLY_CIDR} (réseau host-only, PAS la carte NAT)"
+echo "  calico-node  : ${ds_ready} ready"
+echo "  IPPool       : ${POD_CIDR} (VXLAN, natOutgoing) — must == the cluster's pod CIDR"
+echo "  Autodetection: cidrs=${HOSTONLY_CIDR} (host-only network, NOT the NAT card)"
 echo
-printf '\033[1;33m  /!\\ Calico ne fournit PAS les IP de Service LoadBalancer.\033[0m\n'
-echo "      Tel quel, le Service du Gateway Envoy restera en EXTERNAL-IP <pending>"
-echo "      et aucune UI du lab ne sera joignable. Il reste deux choses à faire :"
-echo "        1. installer un annonceur L2 (MetalLB) sur la plage ${NETWORK}.200-${NETWORK}.230 ;"
-echo "        2. retirer 'loadBalancerClass: io.cilium/l2-announcer' de"
-echo "           envoy-gateway/Envoy-Proxy.yml (classe spécifique à Cilium)."
-echo "      Marche à suivre détaillée : calico/README.md"
+printf '\033[1;33m  /!\\ Calico does NOT provide LoadBalancer Service IPs.\033[0m\n'
+echo "      As it stands, the Envoy Gateway Service will stay on EXTERNAL-IP <pending>"
+echo "      and no lab UI will be reachable. Two things are still missing:"
+echo "        1. install an L2 announcer (MetalLB) on the ${NETWORK}.200-${NETWORK}.230 range;"
+echo "        2. remove 'loadBalancerClass: io.cilium/l2-announcer' from"
+echo "           envoy-gateway/Envoy-Proxy.yml (a Cilium-specific class)."
+echo "      Detailed instructions: calico/README.md"
