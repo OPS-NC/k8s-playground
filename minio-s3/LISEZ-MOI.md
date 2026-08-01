@@ -2,11 +2,15 @@
 [English](README.md) · **Français**
 <!-- /i18n -->
 
-# 🪣 `minio-s3/` — MinIO standalone (S3 + console d'admin) sur local-path
+# 🪣 `minio-s3/` — MinIO standalone (S3 + console d'admin)
 
 > Un endpoint **compatible S3** dans le cluster, en **un seul pod**, avec une **console
-> d'administration complète** (fork Pigsty). C'est la version simple : un PVC `local-path`,
-> aucune résilience. La version résiliente est dans **[`cluster/`](./cluster/)**.
+> d'administration complète** (fork Pigsty). C'est la version simple : un PVC, un replica.
+> La version distribuée est dans **[`cluster/`](./cluster/)**.
+>
+> La StorageClass du PVC est **`MINIO_SC`** (défaut `local-path`). Mets `MINIO_SC=longhorn` pour
+> poser le bucket sur du stockage répliqué — cf.
+> [Quelle StorageClass ?](#-quelle-storageclass--minio_sc) plus bas.
 
 ## 🎯 À quoi ça sert
 
@@ -25,9 +29,9 @@ En interne au cluster : `http://minio.minio-s3.svc.cluster.local:9000`.
 | | **Standalone (ici)** | **Cluster** (`cluster/`) |
 |---|---|---|
 | Workload | Deployment, 1 replica | StatefulSet, **4 pods** (`podManagementPolicy: Parallel`) |
-| Drives | 1 PVC `local-path` 10 Gi | **4** PVC `local-path` 10 Gi (1/pod, 1/worker) |
+| Drives | 1 PVC 10 Gi (`MINIO_SC`) | **4** PVC `local-path` 10 Gi (1/pod, 1/worker) |
 | Erasure coding | ❌ aucun | ✅ **EC:2** |
-| Résilience | nulle : le node meurt ⇒ données perdues | tolère ~2 nœuds/drives down |
+| Résilience | nulle sur `local-path` ; **au niveau du volume** sur `longhorn` | tolère ~2 nœuds/drives down |
 | Workers requis | 1 | **4** (anti-affinité stricte) |
 | Namespace | `minio-s3` | `minio-cluster` (les deux coexistent) |
 | Hostnames | `minio` / `minio-console` | `minio-cluster` / `minio-cluster-console` |
@@ -41,7 +45,7 @@ En interne au cluster : `http://minio.minio-s3.svc.cluster.local:9000`.
 
 | Prérequis | Pourquoi | Vérifier |
 |---|---|---|
-| StorageClass **`local-path`** (`../local-path-storage/`) | le PVC 10 Gi de `/data` ; `minio-up.sh` s'arrête sans elle | `kubectl get storageclass local-path` |
+| Une StorageClass nommée par **`MINIO_SC`** (défaut `local-path`, `../local-path-storage/` ; ou `longhorn`, `../longhorn/`) | le PVC 10 Gi de `/data` ; `minio-up.sh` s'arrête sans elle | `kubectl get storageclass "${MINIO_SC:-local-path}"` |
 | `main-gateway` + écouteur `https` (`../envoy-gateway/`) | porte les deux `HTTPRoute` | `kubectl get gateway -n envoy-gateway-system` |
 | Cert wildcard `*.lab.example.io` (`../cert-manager/`) | TLS des deux hostnames | `kubectl -n envoy-gateway-system get certificate` |
 | DNS `minio` + `minio-console` → `192.168.56.200` | atteindre le VIP Envoy | `getent hosts minio.lab.example.io` |
@@ -61,9 +65,29 @@ Via le point d'entrée du dépôt :
 ./minio-s3/minio-up.sh <distro>
 # Identifiants réglables : MINIO_ROOT_USER (défaut « admin ») / MINIO_ROOT_PASSWORD (généré)
 MINIO_ROOT_PASSWORD='MonPassLab' ./minio-s3/minio-up.sh <distro>
+# Bucket sur stockage répliqué plutôt que node-local (cible de backup Velero) :
+MINIO_SC=longhorn ./minio-s3/minio-up.sh <distro>
 ```
 
 Image épinglée dans `minio-s3.yaml` : **`docker.io/pgsty/minio:RELEASE.2026-06-18T00-00-00Z`**.
+
+### 💾 Quelle StorageClass ? (`MINIO_SC`)
+
+| `MINIO_SC` | Ce que ça donne | À utiliser quand |
+|---|---|---|
+| `local-path` (défaut) | un dossier hostPath sur un node. Le plus rapide, zéro surcoût, **meurt avec son node** | bac à sable : tester `mc`, des SDK, des politiques de bucket |
+| `longhorn` | un volume bloc répliqué ; le pod est replanifié ailleurs et **retrouve ses données** | ce MinIO est une **cible de backup** ([`../velero/`](../velero/LISEZ-MOI.md)) |
+
+> ⚠️ **Un backup qui meurt avec son node n'est pas un backup.** Velero écrit ici à la fois les
+> tarballs d'objets et les données des PV : sur `local-path`, la perte de cet unique worker
+> emporte le seul point de restauration du cluster. `MINIO_SC=longhorn` est le bon défaut pour
+> une cible Velero — en acceptant que Longhorn vive lui aussi sur ces mêmes workers, ce qui fait
+> qu'une copie hors cluster reste la vraie réponse.
+
+> ℹ️ **`storageClassName` est immuable.** Changer `MINIO_SC` sur un MinIO déjà installé est
+> **refusé** par le script, avec les deux sorties possibles (garder la classe actuelle, ou
+> supprimer `deploy/minio` + `pvc/minio-data` et perdre le contenu du bucket) — ce n'est pas
+> ignoré en silence.
 
 ## 🧬 Talos vs kubeadm
 
@@ -73,8 +97,9 @@ choses : le **domaine par défaut** (`talos.lab.example.io` / `kubeadm.lab.examp
 **localisation du `lab.env` / `kubeconfig`** du lab (`../Vagrant-Talos/` ou
 `../Vagrant-KubeADM/`).
 
-> ℹ️ Le seul prérequis est la StorageClass `local-path` — dont le **chemin**, lui, dépend de la
-> distribution (cf. [`../local-path-storage/`](../local-path-storage/LISEZ-MOI.md)).
+> ℹ️ Le seul prérequis est la StorageClass nommée par `MINIO_SC` — et si tu la laisses sur
+> `local-path`, son **chemin**, lui, dépend de la distribution (cf.
+> [`../local-path-storage/`](../local-path-storage/LISEZ-MOI.md)).
 
 ## 🎓 Pas à pas guidé (formation)
 
@@ -88,7 +113,8 @@ choses : le **domaine par défaut** (`talos.lab.example.io` / `kubeadm.lab.examp
 ### 1. Vérifier le prérequis stockage
 
 ```bash
-kubectl get sc local-path      # sinon : ./install.sh <distro> local-path
+export MINIO_SC=local-path     # ou longhorn (répliqué — cf. « Quelle StorageClass ? » plus haut)
+kubectl get sc "$MINIO_SC"     # sinon : ./install.sh <distro> local-path | longhorn
 ```
 
 ### 2. Namespace + Secret d'identifiants (généré une fois, jamais écrasé)
@@ -101,11 +127,13 @@ kubectl -n minio-s3 create secret generic minio-creds \
   --from-literal=root-password="$(openssl rand -base64 18 | tr -d '/+=' | head -c 24)"
 ```
 
-### 3. Déploiement + Service + HTTPRoutes (domaine substitué)
+### 3. Déploiement + Service + HTTPRoutes (domaine et StorageClass substitués)
 
 ```bash
-sed "s/lab\.example\.io/${LAB_DOMAIN}/g" minio-s3/minio-s3.yaml | kubectl apply -f -
+sed -e "s/lab\.example\.io/${LAB_DOMAIN}/g" \
+    -e "s#^\( *storageClassName: \).*#\1${MINIO_SC}#" minio-s3/minio-s3.yaml | kubectl apply -f -
 kubectl -n minio-s3 rollout status deploy/minio --timeout=180s
+kubectl -n minio-s3 get pvc minio-data     # Bound, sur la classe demandée
 ```
 
 ### 4. Récupérer les identifiants
@@ -127,11 +155,13 @@ mc mb lab/demo --insecure && mc ls lab --insecure
 
 ## 🔧 Ce que fait le script
 
-1. Vérifie `kubectl`, l'apiserver et la présence de la StorageClass `local-path`.
+1. Vérifie `kubectl`, l'apiserver et la présence de la StorageClass `${MINIO_SC:-local-path}`,
+   puis qu'un PVC `minio-data` existant n'est pas sur une **autre** classe (champ immuable).
 2. Crée le namespace `minio-s3` et le Secret `minio-creds` (`root-user` / `root-password`) —
    **jamais écrasé** s'il existe : relancer le script ne change pas le mot de passe.
-3. Applique `minio-s3.yaml` : PVC 10 Gi, Deployment (`strategy: Recreate`, car le volume RWO
-   n'accepte pas deux pods), Service ClusterIP, deux `HTTPRoute`.
+3. Applique `minio-s3.yaml` avec le domaine **et la StorageClass** substitués : PVC 10 Gi,
+   Deployment (`strategy: Recreate`, car le volume RWO n'accepte pas deux pods), Service
+   ClusterIP, deux `HTTPRoute`.
 4. Attend le `rollout` (180 s) puis affiche les URL **et les identifiants root en clair sur
    stdout** (cf. Pièges).
 
@@ -186,15 +216,25 @@ mc ls lab --insecure
   run). Ça finit dans l'historique du terminal, les logs de CI, une capture d'écran… Préférer
   les relire depuis le Secret (tableau ci-dessus) et penser à nettoyer la sortie si tu la
   partages.
-- **Aucune résilience.** Deployment 1 replica + 1 PVC `local-path` = stockage **node-local**.
-  Si le worker qui héberge le PV meurt, les objets sont perdus. Pour de la vraie résilience
-  objet, utiliser **[`cluster/`](./cluster/)** (4 drives, EC:2, sur local-path lui aussi — pas
-  besoin de Longhorn : MinIO se réplique tout seul).
-- **Les 10 Gi du PVC ne sont pas une limite.** `local-path` provisionne un dossier hostPath :
-  rien n'empêche MinIO de remplir la partition `/var` du worker. L'`ephemeral-storage`
-  allocatable mesuré sur ce lab est de **~16,9 Go/node** (disque de 20 Go partagé avec l'OS et
-  les images conteneurs) → remplir un bucket déclenche du `DiskPressure` et l'**éviction** de
-  pods sur ce node. Surveiller `kubectl describe node <worker> | grep -i pressure`.
+- **Sur `local-path` (le défaut), aucune résilience.** Deployment 1 replica + 1 PVC node-local :
+  si le worker qui héberge le PV meurt, les objets sont perdus. Trois sorties, par coût
+  croissant : `MINIO_SC=longhorn` (**volume** répliqué, toujours un seul pod MinIO),
+  **[`cluster/`](./cluster/)** (4 drives, EC:2 — MinIO se réplique tout seul), ou une copie hors
+  cluster.
+- **`MINIO_SC=longhorn` protège le volume, pas le domaine de panne.** Les replicas Longhorn
+  vivent sur les mêmes workers que le reste : un `vagrant destroy` emporte quand même le bucket
+  — y compris le backup Velero qui s'y trouve. À considérer comme une protection contre la mort
+  d'*un* node, pas comme une sauvegarde hors site.
+- **Les 10 Gi du PVC sont une vraie limite sur `longhorn`, mais pas sur `local-path`.**
+  `local-path` provisionne un dossier hostPath : rien n'empêche MinIO de remplir la partition
+  `/var` du worker. L'`ephemeral-storage` allocatable mesuré sur ce lab est de **~16,9 Go/node**
+  (disque de 20 Go partagé avec l'OS et les images conteneurs) → remplir un bucket déclenche du
+  `DiskPressure` et l'**éviction** de pods sur ce node. Surveiller
+  `kubectl describe node <worker> | grep -i pressure`. Longhorn, à l'inverse, fait respecter les
+  10 Gi : MinIO reçoit `ENOSPC` et renvoie des erreurs S3 au lieu d'abîmer le node. Quand ce
+  MinIO est une cible Velero, garde donc un œil sur le bucket face à la rétention configurée
+  (`ttl` dans [`../velero/schedule.yaml`](../velero/schedule.yaml)) — et augmente la requête
+  `storage:` de `minio-s3.yaml` avant que ça morde (Longhorn autorise l'expansion).
 - **Le Secret `minio-creds` n'est pas dans git** (créé par le script). Le perdre = perdre
   l'accès root : `kubectl -n minio-s3 delete secret minio-creds` puis relancer le script
   régénère un mot de passe, mais MinIO garde l'ancien tant que le pod n'est pas recréé.

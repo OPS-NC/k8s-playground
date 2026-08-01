@@ -2,11 +2,15 @@
 **English** · [Français](LISEZ-MOI.md)
 <!-- /i18n -->
 
-# 🪣 `minio-s3/` — standalone MinIO (S3 + admin console) on local-path
+# 🪣 `minio-s3/` — standalone MinIO (S3 + admin console)
 
 > An **S3-compatible** endpoint inside the cluster, in a **single pod**, with a **full admin
-> console** (Pigsty fork). This is the simple version: one `local-path` PVC, zero resilience.
-> The resilient version lives in **[`cluster/`](./cluster/)**.
+> console** (Pigsty fork). This is the simple version: one PVC, one replica.
+> The distributed version lives in **[`cluster/`](./cluster/)**.
+>
+> The PVC's StorageClass is **`MINIO_SC`** (default `local-path`). Set `MINIO_SC=longhorn` to
+> put the bucket on replicated storage — see
+> [Which StorageClass?](#-which-storageclass-minio_sc) below.
 
 ## 🎯 Purpose
 
@@ -25,9 +29,9 @@ Inside the cluster: `http://minio.minio-s3.svc.cluster.local:9000`.
 | | **Standalone (here)** | **Cluster** (`cluster/`) |
 |---|---|---|
 | Workload | Deployment, 1 replica | StatefulSet, **4 pods** (`podManagementPolicy: Parallel`) |
-| Drives | 1 `local-path` PVC, 10 Gi | **4** `local-path` PVCs, 10 Gi (1/pod, 1/worker) |
+| Drives | 1 PVC, 10 Gi (`MINIO_SC`) | **4** `local-path` PVCs, 10 Gi (1/pod, 1/worker) |
 | Erasure coding | ❌ none | ✅ **EC:2** |
-| Resilience | none: the node dies ⇒ data gone | tolerates ~2 nodes/drives down |
+| Resilience | none on `local-path`; **volume-level** on `longhorn` | tolerates ~2 nodes/drives down |
 | Workers required | 1 | **4** (strict anti-affinity) |
 | Namespace | `minio-s3` | `minio-cluster` (both coexist) |
 | Hostnames | `minio` / `minio-console` | `minio-cluster` / `minio-cluster-console` |
@@ -41,7 +45,7 @@ Inside the cluster: `http://minio.minio-s3.svc.cluster.local:9000`.
 
 | Prerequisite | Why | Verify |
 |---|---|---|
-| StorageClass **`local-path`** (`../local-path-storage/`) | the 10 Gi PVC behind `/data`; `minio-up.sh` bails out without it | `kubectl get storageclass local-path` |
+| A StorageClass named by **`MINIO_SC`** (default `local-path`, `../local-path-storage/`; or `longhorn`, `../longhorn/`) | the 10 Gi PVC behind `/data`; `minio-up.sh` bails out without it | `kubectl get storageclass "${MINIO_SC:-local-path}"` |
 | `main-gateway` + `https` listener (`../envoy-gateway/`) | carries both `HTTPRoute`s | `kubectl get gateway -n envoy-gateway-system` |
 | Wildcard cert `*.lab.example.io` (`../cert-manager/`) | TLS for both hostnames | `kubectl -n envoy-gateway-system get certificate` |
 | DNS `minio` + `minio-console` → `192.168.56.200` | to reach the Envoy VIP | `getent hosts minio.lab.example.io` |
@@ -61,9 +65,28 @@ Through the repository entry point:
 ./minio-s3/minio-up.sh <distro>
 # Tunable credentials: MINIO_ROOT_USER (default "admin") / MINIO_ROOT_PASSWORD (generated)
 MINIO_ROOT_PASSWORD='MyLabPass' ./minio-s3/minio-up.sh <distro>
+# Bucket on replicated storage instead of node-local (Velero backup target):
+MINIO_SC=longhorn ./minio-s3/minio-up.sh <distro>
 ```
 
 Image pinned in `minio-s3.yaml`: **`docker.io/pgsty/minio:RELEASE.2026-06-18T00-00-00Z`**.
+
+### 💾 Which StorageClass? (`MINIO_SC`)
+
+| `MINIO_SC` | What it gives you | Use it when |
+|---|---|---|
+| `local-path` (default) | a hostPath directory on one node. Fastest, zero overhead, **dies with its node** | sandbox: testing `mc`, SDKs, bucket policies |
+| `longhorn` | a replicated block volume; the pod is rescheduled elsewhere and **finds its data** | this MinIO is a **backup target** ([`../velero/`](../velero/README.md)) |
+
+> ⚠️ **A backup that dies with its node is not a backup.** Velero writes both the object
+> tarballs and the PV data here, so on `local-path` the loss of that single worker takes the
+> cluster's only restore point with it. `MINIO_SC=longhorn` is the right default for a Velero
+> target — accepting that Longhorn itself lives on those same workers, which is why an
+> off-cluster copy stays the real answer.
+
+> ℹ️ **`storageClassName` is immutable.** Changing `MINIO_SC` on an already-installed MinIO is
+> **refused** by the script with the two ways out (keep the current class, or delete
+> `deploy/minio` + `pvc/minio-data` and lose the bucket content) — it is not silently ignored.
 
 ## 🧬 Talos vs kubeadm
 
@@ -72,8 +95,9 @@ values on both labs. The distribution argument only drives two things here: the 
 domain** (`talos.lab.example.io` / `kubeadm.lab.example.io`) and **where the lab's `lab.env`
 / `kubeconfig` live** (`../Vagrant-Talos/` or `../Vagrant-KubeADM/`).
 
-> ℹ️ The only prerequisite is the `local-path` StorageClass — whose **path** does depend on the
-> distribution (see [`../local-path-storage/`](../local-path-storage/README.md)).
+> ℹ️ The only prerequisite is the StorageClass named by `MINIO_SC` — and if you leave it on
+> `local-path`, its **path** does depend on the distribution (see
+> [`../local-path-storage/`](../local-path-storage/README.md)).
 
 ## 🎓 Guided walkthrough (step by step)
 
@@ -87,7 +111,8 @@ domain** (`talos.lab.example.io` / `kubeadm.lab.example.io`) and **where the lab
 ### 1. Check the storage prerequisite
 
 ```bash
-kubectl get sc local-path      # otherwise: ./install.sh <distro> local-path
+export MINIO_SC=local-path     # or longhorn (replicated — see "Which StorageClass?" above)
+kubectl get sc "$MINIO_SC"     # otherwise: ./install.sh <distro> local-path | longhorn
 ```
 
 ### 2. Namespace + credentials Secret (generated once, never overwritten)
@@ -103,8 +128,10 @@ kubectl -n minio-s3 create secret generic minio-creds \
 ### 3. Deployment + Service + HTTPRoutes (domain substituted)
 
 ```bash
-sed "s/lab\.example\.io/${LAB_DOMAIN}/g" minio-s3/minio-s3.yaml | kubectl apply -f -
+sed -e "s/lab\.example\.io/${LAB_DOMAIN}/g" \
+    -e "s#^\( *storageClassName: \).*#\1${MINIO_SC}#" minio-s3/minio-s3.yaml | kubectl apply -f -
 kubectl -n minio-s3 rollout status deploy/minio --timeout=180s
+kubectl -n minio-s3 get pvc minio-data     # Bound, on the class you asked for
 ```
 
 ### 4. Read the credentials back
@@ -126,11 +153,13 @@ mc mb lab/demo --insecure && mc ls lab --insecure
 
 ## 🔧 What the script does
 
-1. Checks `kubectl`, the apiserver and the presence of the `local-path` StorageClass.
+1. Checks `kubectl`, the apiserver and the presence of the `${MINIO_SC:-local-path}` StorageClass,
+   then that an existing `minio-data` PVC is not on a **different** class (immutable field).
 2. Creates the `minio-s3` namespace and the `minio-creds` Secret (`root-user` / `root-password`) —
    **never overwritten** if it exists: re-running the script does not change the password.
-3. Applies `minio-s3.yaml`: 10 Gi PVC, Deployment (`strategy: Recreate`, since the RWO volume
-   cannot take two pods), ClusterIP Service, two `HTTPRoute`s.
+3. Applies `minio-s3.yaml` with the domain **and the StorageClass** substituted: 10 Gi PVC,
+   Deployment (`strategy: Recreate`, since the RWO volume cannot take two pods), ClusterIP
+   Service, two `HTTPRoute`s.
 4. Waits for the `rollout` (180 s) then prints the URLs **and the root credentials in clear text
    on stdout** (see Pitfalls).
 
@@ -184,15 +213,25 @@ mc ls lab --insecure
 - **`minio-up.sh` prints the root user AND password in clear text on stdout** (end of the run).
   That ends up in your shell history, CI logs, a screenshot… Prefer reading them back from the
   Secret (table above), and remember to scrub the output if you share it.
-- **No resilience at all.** A 1-replica Deployment + 1 `local-path` PVC = **node-local** storage.
-  If the worker hosting the PV dies, the objects are gone. For real object resilience, use
-  **[`cluster/`](./cluster/)** (4 drives, EC:2, on local-path as well — no need for Longhorn:
-  MinIO replicates on its own).
-- **The 10 Gi of the PVC is not a limit.** `local-path` provisions a hostPath directory: nothing
-  stops MinIO from filling the worker's `/var` partition. The allocatable `ephemeral-storage`
-  measured on this lab is **~16.9 GB/node** (20 GB disk shared with the OS and the container
-  images) → filling a bucket triggers `DiskPressure` and pod **eviction** on that node. Watch
-  `kubectl describe node <worker> | grep -i pressure`.
+- **On `local-path` (the default) there is no resilience at all.** A 1-replica Deployment + 1
+  node-local PVC: if the worker hosting the PV dies, the objects are gone. Three ways out,
+  by increasing cost: `MINIO_SC=longhorn` (replicated **volume**, still one MinIO pod),
+  **[`cluster/`](./cluster/)** (4 drives, EC:2 — MinIO replicates on its own), or a copy
+  off-cluster.
+- **`MINIO_SC=longhorn` protects the volume, not the whole failure domain.** Longhorn replicas
+  live on the same workers as everything else, so a `vagrant destroy` still takes the bucket —
+  including any Velero backup stored in it. Treat it as protection against *one* node dying,
+  not as an off-site backup.
+- **The 10 Gi of the PVC is a real limit on `longhorn`, but not on `local-path`.** `local-path`
+  provisions a hostPath directory: nothing stops MinIO from filling the worker's `/var`
+  partition. The allocatable `ephemeral-storage` measured on this lab is **~16.9 GB/node**
+  (20 GB disk shared with the OS and the container images) → filling a bucket triggers
+  `DiskPressure` and pod **eviction** on that node. Watch
+  `kubectl describe node <worker> | grep -i pressure`. Longhorn, by contrast, enforces the
+  10 Gi: MinIO gets `ENOSPC` and returns S3 errors instead of hurting the node. So when this
+  MinIO is a Velero target, keep an eye on the bucket against the retention you configured
+  (`ttl` in [`../velero/schedule.yaml`](../velero/schedule.yaml)) — and raise the `storage:`
+  request in `minio-s3.yaml` before it bites (Longhorn allows expansion).
 - **The `minio-creds` Secret is not in git** (the script creates it). Losing it means losing root
   access: `kubectl -n minio-s3 delete secret minio-creds` then re-running the script regenerates
   a password, but MinIO keeps the old one until the pod is recreated.

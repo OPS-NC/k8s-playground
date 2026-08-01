@@ -5,8 +5,10 @@
 # maintained" as of Feb 2026, with an amputated console since mid-2025). Pigsty rebuilds the
 # MinIO server AND restores the full ADMIN CONSOLE → we get BOTH the recent build AND the
 # admin UI.
-# Storage: 1 local-path PVC (node-local, no Longhorn). Exposed over HTTPS through
-# main-gateway:
+# Storage: 1 PVC, `local-path` by default (node-local). minio-up.sh substitutes the class from
+# MINIO_SC, so `MINIO_SC=longhorn ./install.sh <distro> minio` puts the bucket on replicated
+# storage — the sane choice when this MinIO is a Velero backup target, since a backup that dies
+# with its node is not a backup. Exposed over HTTPS through main-gateway:
 #   - API S3   : https://minio.lab.example.io          (port 9000)
 #   - Console : https://minio-console.lab.example.io  (port 9001, full admin)
 #
@@ -28,6 +30,8 @@ metadata:
   namespace: minio-s3
 spec:
   accessModes: [ReadWriteOnce]
+  # Substituted by minio-up.sh from MINIO_SC. Immutable once the PVC exists: changing the
+  # variable on an already-installed MinIO is refused by the script, not silently ignored.
   storageClassName: local-path
   resources:
     requests:
@@ -48,6 +52,16 @@ spec:
   template:
     metadata:
       labels: { app: minio }
+      annotations:
+        # Do NOT let Velero's File System Backup copy /data. When this MinIO is the Velero
+        # target, `defaultVolumesToFsBackup: true` would back the bucket up INTO ITSELF: every
+        # daily run would copy every previous backup, so the volume grows with the square of the
+        # retention and fills the PVC. Measured on the Talos lab: a single run wrote 1.39 GB of
+        # MinIO's own /data into MinIO's own /data.
+        # Only this volume is excluded — the Deployment, Service, HTTPRoutes and the
+        # `minio-creds` Secret are still backed up, which is what you actually need to rebuild
+        # this MinIO and then restore the rest from the bucket.
+        backup.velero.io/backup-volumes-excludes: data
     spec:
       securityContext:
         runAsUser: 1000

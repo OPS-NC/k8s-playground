@@ -1,8 +1,18 @@
-# schedule.yaml — the RECURRING backup of the whole cluster, to MinIO.
+# schedule.yaml — the RECURRING backups of the whole cluster, to MinIO.
 #
 # A `Schedule` is a Backup factory: Velero stamps out one `Backup` object per tick, and each
 # one carries the template below. Deleting the Schedule stops the ticks; it does NOT delete
 # the backups already in the bucket (they expire on their own `ttl`).
+#
+# TWO schedules, because the two halves of a backup have very different costs:
+#
+#   hourly-objects  every hour   objects ONLY        cheap  (one tarball, a few MB, seconds)
+#   daily-full      02:00 UTC    objects + PV DATA   costly (every byte of every pod volume)
+#
+# Backing up the MANIFESTS every hour is nearly free: Velero lists the API and writes one
+# tarball. Backing up the VOLUME data every hour would have the node-agent re-read every
+# Longhorn volume in the cluster, so that runs once a day. The result is a ~1-hour RPO on
+# "someone deleted a Deployment" and a ~24-hour RPO on "the data inside a PVC is gone".
 #
 # Applied by velero-up.sh. Nothing here depends on the lab: no domain, no IP — the object
 # store is reached through the in-cluster MinIO Service (see values.yaml).
@@ -10,11 +20,37 @@
 apiVersion: velero.io/v1
 kind: Schedule
 metadata:
+  name: hourly-objects
+  namespace: velero
+spec:
+  # Top of every hour, in the VELERO SERVER's timezone (UTC unless the pod says otherwise) —
+  # not the workstation's. A cron in 5 fields here, unlike CloudNativePG's 6-field one.
+  schedule: "0 * * * *"
+  skipImmediately: true
+  template:
+    # 48 h, NOT the 7 days of the daily one: 24 ticks a day makes retention multiply fast, and
+    # an hourly tarball older than two days is superseded by a daily that ALSO carries the
+    # matching volume data. Two days of hourly granularity is what makes "roll back to just
+    # before that bad `kubectl apply`" possible.
+    ttl: 48h
+    storageLocation: default
+    includedNamespaces:
+      - "*"
+    # THE two settings that keep this backup cheap, and both are explicit OVERRIDES: the
+    # server defaults to `defaultVolumesToFsBackup: true` (values.yaml), so dropping this line
+    # would silently turn every hourly tick into a full data copy.
+    defaultVolumesToFsBackup: false
+    snapshotVolumes: false
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
   name: daily-full
   namespace: velero
 spec:
-  # 02:00 every day, in the VELERO SERVER's timezone (UTC unless the pod says otherwise) —
-  # not the workstation's. A cron in 5 fields here, unlike CloudNativePG's 6-field one.
+  # 02:00 every day. Note the hourly tick fires at 02:00 too, so both run once a day at the
+  # same minute; Velero processes Backups one at a time, so that costs a short queue wait and
+  # nothing else.
   schedule: "0 2 * * *"
   # A missed tick (cluster down at 02:00) does NOT fire on startup: we would rather have a
   # hole in the history than a surprise backup every time the lab comes up.
@@ -29,4 +65,5 @@ spec:
       - "*"
     # The PV data follows the manifests: `defaultVolumesToFsBackup: true` (values.yaml) is a
     # server-level default, repeated here so that reading THIS object tells the whole story.
+    # This is the schedule that walks every Longhorn volume through the node-agent (FSB/kopia).
     defaultVolumesToFsBackup: true

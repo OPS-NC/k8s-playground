@@ -49,6 +49,13 @@ spec:
   template:
     metadata:
       labels: { app: minio-cluster }
+      annotations:
+        # Same reason as the standalone (../minio-s3.yaml): this namespace is the repository's
+        # designated Velero target, and `defaultVolumesToFsBackup: true` would have Velero copy
+        # each of the FOUR 10 Gi drives — which already hold every previous backup — back into
+        # itself. Excluding the drive keeps the manifests and the `minio-creds` Secret in the
+        # backup, which is what you need to rebuild MinIO before restoring anything else.
+        backup.velero.io/backup-volumes-excludes: data
     spec:
       securityContext: { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 }
       # 1 pod per node (node-local drive) → erasure coding spread over 4 distinct workers.

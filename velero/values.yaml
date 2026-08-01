@@ -63,6 +63,22 @@ nodeAgent:
   # Overridden by velero-up.sh with VELERO_POD_VOLUME_PATH (the distribution profile). Same
   # value on both labs today — see lib/profiles/*.sh for why that is not a coincidence.
   podVolumePath: /var/lib/kubelet/pods
+  # MANDATORY on both labs, and the failure it prevents is not obvious: the control planes carry
+  # the `node-role.kubernetes.io/control-plane:NoSchedule` taint, so without this toleration the
+  # DaemonSet lands on the 3 workers ONLY. Any pod with a volume on a control plane — the Cilium
+  # DaemonSet's `tmp` emptyDir, for a start — then fails with
+  #   "Error backing up item: daemonset pod not found in running state in node <cp>"
+  # and every single backup ends `PartiallyFailed`, forever. A health signal that is always red
+  # is a health signal nobody reads, so we make the node-agent genuinely cluster-wide instead.
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    # Older/renamed control-plane taint, still emitted by some kubeadm versions. Harmless when
+    # nothing carries it.
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 1Gi }

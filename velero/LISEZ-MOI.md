@@ -26,6 +26,30 @@ Sauvegarder un cluster Kubernetes, ce sont deux problèmes qu'on confond en perm
 Ne restaurer que le premier, c'est obtenir un cluster plein de PVC vides. Cet addon fait les
 deux, et les fait au même endroit — le bucket `velero` du MinIO du lab.
 
+### Deux coûts, deux cadences
+
+La distinction ci-dessus n'est pas théorique : c'est pour ça qu'il y a **deux** schedules et non
+un seul.
+
+| Schedule | Cron | Ce qu'il écrit | TTL | Coût par tick |
+|---|---|---|---|---|
+| **`hourly-objects`** | `0 * * * *` | les objets **seulement** | `48h` | un tarball, quelques Mo, des secondes |
+| **`daily-full`** | `0 2 * * *` | les objets **+ tous les volumes de pods** | `168h` | le node-agent relit chaque volume |
+
+Donc : un **RPO d'environ 1 heure** sur « quelqu'un a supprimé un Deployment / un Secret / un
+namespace entier », et un **RPO d'environ 24 heures** sur « les octets dans un PVC sont faux ».
+Sauvegarder les manifestes chaque heure est quasi gratuit ; faire pareil avec les données des
+volumes occuperait le `node-agent` en permanence pour un lab qui change quelques fichiers par
+jour.
+
+> ⚠️ **Une sauvegarde `hourly-objects` contient les *définitions* de PVC et de PV, pas leur
+> contenu.** Restaurer depuis l'une d'elles recrée les PVC **vides** (Longhorn provisionne des
+> volumes neufs). C'est le bon choix pour « annuler mon dernier `kubectl apply` », et le mauvais
+> pour « récupérer mes données » — pour ça, restaure le dernier `daily-full`.
+> `velero backup describe <nom>` dit de quel type il s'agit, et le nombre de
+> `PodVolumeBackup` (`kubectl -n velero get podvolumebackups`) vaut zéro pour toutes les
+> horaires.
+
 ### Le montage en une phrase
 
 `deployNodeAgent: true` + `defaultVolumesToFsBackup: true` : chaque volume de pod est sauvegardé
@@ -54,9 +78,9 @@ mérite le nom.
 
 | Fichier | Rôle |
 |---|---|
-| `velero-up.sh` | **l'install** : bucket MinIO + utilisateur restreint, namespace, Secret de credentials, chart, Schedule |
+| `velero-up.sh` | **l'install** : bucket MinIO + utilisateur restreint, namespace, Secret de credentials, chart, Schedules |
 | `values.yaml` | Valeurs Helm : l'init container du plugin AWS, la `BackupStorageLocation`, les défauts FSB, le `node-agent` |
-| `schedule.yaml` | `Schedule daily-full` — tout le cluster, 02:00, TTL 7 jours |
+| `schedule.yaml` | **deux** `Schedule` — `hourly-objects` (objets, TTL 48h) et `daily-full` (objets + données des PV, 02:00, TTL 7 jours) |
 
 ## 📋 Prérequis
 
@@ -104,6 +128,7 @@ envois en 403).
 | `VELERO_BUCKET` | `velero` | nom du bucket — créé s'il manque |
 | `VELERO_S3_USER` | `velero` | utilisateur MinIO, restreint à ce seul bucket |
 | `VELERO_NS` | `velero` | namespace de Velero lui-même |
+| `MC_ALIAS` | `labminio` | l'alias `mc` temporaire du port-forward. **Doit commencer par une lettre** — sinon `mc` refuse le nom (c'est ce qui cassait l'install avec l'ancien `_lab`), et il évite volontairement `lab` tout court pour ne jamais écraser votre propre alias |
 
 ## 🧬 Talos vs kubeadm
 
@@ -155,17 +180,17 @@ On ne donne jamais les credentials root de MinIO à un agent cluster-admin.
 ```bash
 ROOTPW=$(kubectl -n "$MINIO_NS" get secret minio-creds -o jsonpath='{.data.root-password}' | base64 -d)
 kubectl -n "$MINIO_NS" port-forward svc/minio 19010:9000 &
-mc alias set _lab http://127.0.0.1:19010 admin "$ROOTPW"
+mc alias set labminio http://127.0.0.1:19010 admin "$ROOTPW"
 
-mc mb --ignore-existing _lab/velero
+mc mb --ignore-existing labminio/velero
 cat > /tmp/velero-policy.json <<'JSON'
 { "Version":"2012-10-17","Statement":[
   {"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::velero","arn:aws:s3:::velero/*"]} ]}
 JSON
-mc admin policy create _lab velero-rw /tmp/velero-policy.json
+mc admin policy create labminio velero-rw /tmp/velero-policy.json
 SK=$(openssl rand -base64 21 | tr -d '/+=' | head -c 28)
-mc admin user add _lab velero "$SK"
-mc admin policy attach _lab velero-rw --user velero
+mc admin user add labminio velero "$SK"
+mc admin policy attach labminio velero-rw --user velero
 kill %1                                  # le port-forward a fait son travail
 ```
 
@@ -203,11 +228,11 @@ kubectl -n velero get backupstoragelocation default
 # default   Available   10s              1m    true
 ```
 
-### 6. La sauvegarde récurrente
+### 6. Les sauvegardes récurrentes
 
 ```bash
 kubectl apply -f velero/schedule.yaml
-kubectl -n velero get schedules
+kubectl -n velero get schedules      # hourly-objects + daily-full, avec leurs crons
 ```
 
 ## 🔧 Ce que fait le script
@@ -217,7 +242,7 @@ kubectl -n velero get schedules
 | `[1/4]` | namespace `velero` + les trois labels PodSecurity `privileged` |
 | `[2/4]` | MinIO : bucket `velero`, policy `velero-rw`, utilisateur `velero` restreint, puis le Secret `velero-s3` |
 | `[3/4]` | chart Helm avec l'endpoint résolu, puis attente de `BackupStorageLocation: Available` |
-| `[4/4]` | `kubectl apply -f schedule.yaml` |
+| `[4/4]` | `kubectl apply -f schedule.yaml` — les **deux** Schedule (`hourly-objects`, `daily-full`) |
 
 ### Les réglages Helm qui comptent
 
@@ -227,7 +252,7 @@ kubectl -n velero get schedules
 | `config.s3ForcePathStyle` | `"true"` | MinIO sert un bucket comme un **chemin** (`minio:9000/velero`), pas comme un sous-domaine |
 | `config.region` | `us-east-1` | MinIO l'ignore, le SDK AWS **refuse de signer** sans |
 | `deployNodeAgent` | `true` | pas de DaemonSet, pas de données de volume — les objets seuls |
-| `defaultVolumesToFsBackup` | `true` | couvre chaque volume de pod sans annotation par application |
+| `defaultVolumesToFsBackup` | `true` | couvre chaque volume de pod sans annotation par application — et c'est un défaut **au niveau du serveur**, ce qui est précisément pourquoi `hourly-objects` doit le repasser explicitement à `false` |
 | `uploaderType` | `kopia` | dédupliqué et compressé ; restic est l'ancien monde |
 | `snapshotsEnabled` | `false` | pas de `VolumeSnapshotLocation` : il n'y a pas de contrôleur de snapshot dans ce lab, et une VSL en provider AWS ne produirait que des erreurs |
 | `defaultBackupTTL` | `168h` | 7 jours — chaque octet atterrit sur le disque partagé des workers |
@@ -247,12 +272,25 @@ kubectl -n velero get schedules
 ```bash
 kubectl -n velero get backupstoragelocation default        # PHASE=Available
 kubectl -n velero get pods                                 # velero + un node-agent PAR NODE
-kubectl -n velero get schedules                            # daily-full
+kubectl -n velero get schedules                            # hourly-objects + daily-full
 
 # La vraie preuve : une sauvegarde qui va au bout, avec ses volumes
 velero backup create smoke --wait
 velero backup describe smoke --details | sed -n '/Phase/p;/Item/p'
 kubectl -n velero get podvolumebackups                     # une ligne par volume monté, Completed
+```
+
+Vérifier que les deux cadences diffèrent vraiment — le compte de `PodVolumeBackup` est le
+révélateur :
+
+```bash
+# objets seuls : on attend ZÉRO PodVolumeBackup pour cette sauvegarde
+velero backup create objs-only --snapshot-volumes=false --default-volumes-to-fs-backup=false --wait
+kubectl -n velero get podvolumebackups -l velero.io/backup-name=objs-only    # « No resources found »
+
+# objets + données : on attend un PodVolumeBackup par volume monté
+velero backup create full-now --default-volumes-to-fs-backup --wait
+kubectl -n velero get podvolumebackups -l velero.io/backup-name=full-now     # tous Completed
 ```
 
 Sans la CLI, la même chose en `kubectl` seul :
@@ -264,14 +302,14 @@ kind: Backup
 metadata: { name: smoke, namespace: velero }
 spec: { defaultVolumesToFsBackup: true, ttl: 168h }
 EOF
-kubectl -n velero get backup smoke -o jsonpath='{.status.phase}{"\n"}'    # Completed
+kubectl -n velero get backups.velero.io smoke -o jsonpath='{.status.phase}{"\n"}'    # Completed
 ```
 
 Et les objets ont bien atterri dans MinIO :
 
 ```bash
 kubectl -n minio-cluster port-forward svc/minio 19010:9000 &
-mc ls -r _lab/velero/backups/smoke/
+mc ls -r labminio/velero/backups/smoke/
 kill %1
 ```
 
@@ -371,11 +409,38 @@ kubectl delete namespace demo-backup
   un cluster neuf, utilisez `velero restore create --from-backup <b> --exclude-namespaces velero`,
   sinon la restauration se bat contre le Velero qui l'exécute.
 - **Le cron du `Schedule` est lu dans le fuseau du serveur** (UTC dans ce lab), pas celui de
-  votre poste. `0 2 * * *`, c'est 13:00 à Nouméa.
+  votre poste. `0 2 * * *`, c'est 13:00 à Nouméa, et `hourly-objects` part à l'heure UTC pile.
+- **Restaurer la sauvegarde la plus récente n'est pas toujours ce qu'on veut.** Avec deux
+  schedules, la dernière sauvegarde est presque toujours une `hourly-objects`, qui ne porte
+  **aucune donnée de volume**. Choisissez délibérément :
+  `kubectl -n velero get backups.velero.io --sort-by=.metadata.creationTimestamp` puis restaurez depuis la
+  dernière `daily-full-*` s'il faut récupérer le contenu des PVC.
+- **`kubectl get backups` est AMBIGU dans ce lab et répond en silence à propos de Longhorn.**
+  Trois CRD installées revendiquent le kind `Backup` — `longhorn.io`, `velero.io` et
+  `postgresql.cnpg.io` — et `kubectl` résout le pluriel nu vers celle de Longhorn. Donc
+  `kubectl -n velero get backups` affiche `No resources found in velero namespace.` alors que
+  les sauvegardes Velero sont juste là : un faux négatif parfaitement convaincant.
+  **Qualifiez toujours** : `kubectl -n velero get backups.velero.io`. `podvolumebackups` et
+  `schedules`, eux, ne sont pas ambigus — c'est ce qui rend le piège si facile.
+- **`velero backup logs` / `describe --details` échouent depuis votre poste.** Ils demandent à
+  l'API server une URL présignée, forgée contre l'endpoint de la BackupStorageLocation —
+  `http://minio.<ns>.svc.cluster.local:9000`, un nom DNS interne au cluster que votre hôte ne
+  peut pas résoudre (`dial tcp: lookup … no such host`). La sauvegarde elle-même est saine. Pour
+  lire les logs ou la liste des erreurs, passez par le bucket :
+  ```bash
+  kubectl -n <ns-minio> port-forward svc/minio 19010:9000 &
+  mc alias set labminio http://127.0.0.1:19010 admin "$ROOTPW"
+  mc cp labminio/velero/backups/<backup>/<backup>-results.gz - | gunzip | python3 -m json.tool
+  ```
 - **`velero backup delete` supprime aussi les objets du bucket** ; `kubectl delete backup` ne
   supprime que l'objet Kubernetes et laisse le tarball orphelin dans MinIO.
-- **Le TTL est de 7 jours.** Un lab éteint quinze jours revient avec un bucket vide — le GC
-  tourne sur l'horloge de Velero, pas sur le besoin qu'on avait de cette sauvegarde.
+- **Les TTL sont de 48 h (horaire) et 7 jours (quotidien).** Un lab éteint quinze jours revient
+  avec un bucket vide — le GC tourne sur l'horloge de Velero, pas sur le besoin qu'on avait de
+  cette sauvegarde.
+- **24 ticks horaires par jour, ce sont 24 objets `Backup` de plus par jour.** À `48h` de TTL ça
+  se stabilise vers ~50 objets ; `kubectl -n velero get backups.velero.io` devient bruyant bien avant de
+  devenir coûteux. Filtrez avec `-l velero.io/schedule-name=daily-full` quand seules les
+  sauvegardes restaurables-avec-données vous intéressent.
 
 ## 🧹 Désinstallation
 
@@ -384,7 +449,7 @@ kubectl delete -f velero/schedule.yaml
 helm uninstall velero -n velero
 kubectl delete namespace velero          # emporte les CR ; les CRD survivent
 kubectl get crd | sed -n '/velero.io/p' | awk '{print $1}' | xargs -r kubectl delete crd
-# Le bucket n'est PAS supprimé : mc rb --force _lab/velero
+# Le bucket n'est PAS supprimé : mc rb --force labminio/velero
 ```
 
 ## 📚 Références

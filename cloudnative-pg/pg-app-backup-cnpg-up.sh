@@ -48,20 +48,24 @@ for _ in $(seq 1 60); do
 done
 curl -sf -o /dev/null http://127.0.0.1:19000/minio/health/ready \
   || { echo "ERROR: MinIO (minio-cluster) not ready after 60s — kubectl -n minio-cluster get pods" >&2; exit 1; }
-"$MC" alias set _lab http://127.0.0.1:19000 admin "$ROOTPW" >/dev/null
-"$MC" mb --ignore-existing _lab/cnpg-backups >/dev/null
+# The alias name must START WITH A LETTER: since RELEASE.2025-08-13 `mc` validates it and
+# rejects the older `_lab` outright. Still NOT plain `lab` — that is the name a human is told to
+# use for their own alias, and clobbering it would repoint their shell at this port-forward.
+MC_ALIAS="${MC_ALIAS:-labminio}"
+"$MC" alias set "$MC_ALIAS" http://127.0.0.1:19000 admin "$ROOTPW" >/dev/null
+"$MC" mb --ignore-existing "${MC_ALIAS}/cnpg-backups" >/dev/null
 POLICY="$(mktemp)"; cat > "$POLICY" <<'JSON'
 { "Version":"2012-10-17","Statement":[
   {"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::cnpg-backups","arn:aws:s3:::cnpg-backups/*"]} ]}
 JSON
-"$MC" admin policy create _lab cnpg-backups-rw "$POLICY" >/dev/null 2>&1 || true
+"$MC" admin policy create "$MC_ALIAS" cnpg-backups-rw "$POLICY" >/dev/null 2>&1 || true
 if kubectl -n cnpg-demo get secret cnpg-backup-s3 >/dev/null 2>&1; then
   SK="$(kubectl -n cnpg-demo get secret cnpg-backup-s3 -o jsonpath='{.data.SECRET_ACCESS_KEY}' | base64 -d)"
 else
   SK="$(openssl rand -base64 21 | tr -d '/+=' | head -c 28)"
 fi
-"$MC" admin user add _lab cnpg-backup "$SK" >/dev/null 2>&1 || true
-"$MC" admin policy attach _lab cnpg-backups-rw --user cnpg-backup >/dev/null 2>&1 || true
+"$MC" admin user add "$MC_ALIAS" cnpg-backup "$SK" >/dev/null 2>&1 || true
+"$MC" admin policy attach "$MC_ALIAS" cnpg-backups-rw --user cnpg-backup >/dev/null 2>&1 || true
 kill $PF 2>/dev/null || true; trap - EXIT
 
 log "K8s Secret cnpg-backup-s3 (ns cnpg-demo)"

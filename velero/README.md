@@ -26,6 +26,27 @@ Backing up a Kubernetes cluster is two problems that people keep conflating:
 Restoring only the first gives you a cluster full of empty PVCs. This component does both, and
 does them in one place — the `velero` bucket of the lab's MinIO.
 
+### Two costs, two cadences
+
+The distinction above is not academic: it is why there are **two** schedules rather than one.
+
+| Schedule | Cron | What it writes | TTL | Cost per tick |
+|---|---|---|---|---|
+| **`hourly-objects`** | `0 * * * *` | the objects **only** | `48h` | one tarball, a few MB, seconds |
+| **`daily-full`** | `0 2 * * *` | objects **+ every pod volume** | `168h` | the node-agent re-reads every volume |
+
+So: a **~1-hour RPO** on "someone deleted a Deployment / a Secret / a whole namespace", and a
+**~24-hour RPO** on "the bytes inside a PVC are wrong". Backing the manifests up hourly is
+nearly free; doing the same with the volume data would keep the `node-agent` busy around the
+clock for a lab that changes a few files a day.
+
+> ⚠️ **An `hourly-objects` backup contains the PVC and PV *definitions*, not their contents.**
+> Restoring from one recreates the PVCs **empty** (Longhorn provisions fresh volumes). It is the
+> right choice for "undo my last `kubectl apply`", and the wrong one for "get my data back" —
+> for that, restore the latest `daily-full`. `velero backup describe <name>` spells out which
+> kind you are looking at, and the volume count in `kubectl -n velero get podvolumebackups`
+> is zero for every hourly one.
+
 ### The setup in one sentence
 
 `deployNodeAgent: true` + `defaultVolumesToFsBackup: true`: every pod volume is backed up
@@ -53,9 +74,9 @@ whole point is that it gets destroyed and rebuilt, only the second one is worth 
 
 | File | Purpose |
 |---|---|
-| `velero-up.sh` | **the install**: MinIO bucket + scoped user, namespace, credentials Secret, chart, Schedule |
+| `velero-up.sh` | **the install**: MinIO bucket + scoped user, namespace, credentials Secret, chart, Schedules |
 | `values.yaml` | Helm values: the AWS plugin init container, the `BackupStorageLocation`, FSB defaults, `node-agent` |
-| `schedule.yaml` | `Schedule daily-full` — whole cluster, 02:00, TTL 7 days |
+| `schedule.yaml` | **two** `Schedule`s — `hourly-objects` (objects, TTL 48h) and `daily-full` (objects + PV data, 02:00, TTL 7 days) |
 
 ## 📋 Prerequisites
 
@@ -101,6 +122,7 @@ access key** (re-minting it on every run would silently 403 every upload).
 | `VELERO_BUCKET` | `velero` | bucket name — created if absent |
 | `VELERO_S3_USER` | `velero` | MinIO user, scoped to that bucket alone |
 | `VELERO_NS` | `velero` | Velero's own namespace |
+| `MC_ALIAS` | `labminio` | the transient `mc` alias for the port-forward. **Must start with a letter** — `mc` rejects the name otherwise (this is why the older `_lab` broke the install), and it deliberately avoids plain `lab` so it never clobbers your own alias |
 
 ## 🧬 Talos vs kubeadm
 
@@ -152,17 +174,17 @@ Never hand a cluster-admin agent the MinIO root credentials.
 ```bash
 ROOTPW=$(kubectl -n "$MINIO_NS" get secret minio-creds -o jsonpath='{.data.root-password}' | base64 -d)
 kubectl -n "$MINIO_NS" port-forward svc/minio 19010:9000 &
-mc alias set _lab http://127.0.0.1:19010 admin "$ROOTPW"
+mc alias set labminio http://127.0.0.1:19010 admin "$ROOTPW"
 
-mc mb --ignore-existing _lab/velero
+mc mb --ignore-existing labminio/velero
 cat > /tmp/velero-policy.json <<'JSON'
 { "Version":"2012-10-17","Statement":[
   {"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::velero","arn:aws:s3:::velero/*"]} ]}
 JSON
-mc admin policy create _lab velero-rw /tmp/velero-policy.json
+mc admin policy create labminio velero-rw /tmp/velero-policy.json
 SK=$(openssl rand -base64 21 | tr -d '/+=' | head -c 28)
-mc admin user add _lab velero "$SK"
-mc admin policy attach _lab velero-rw --user velero
+mc admin user add labminio velero "$SK"
+mc admin policy attach labminio velero-rw --user velero
 kill %1                                  # the port-forward has done its job
 ```
 
@@ -200,11 +222,11 @@ kubectl -n velero get backupstoragelocation default
 # default   Available   10s              1m    true
 ```
 
-### 6. The recurring backup
+### 6. The recurring backups
 
 ```bash
 kubectl apply -f velero/schedule.yaml
-kubectl -n velero get schedules
+kubectl -n velero get schedules      # hourly-objects + daily-full, with their crons
 ```
 
 ## 🔧 What the script does
@@ -214,7 +236,7 @@ kubectl -n velero get schedules
 | `[1/4]` | namespace `velero` + the three `privileged` PodSecurity labels |
 | `[2/4]` | MinIO: bucket `velero`, policy `velero-rw`, user `velero` scoped to it, then the `velero-s3` Secret |
 | `[3/4]` | Helm chart with the resolved endpoint, then waits for `BackupStorageLocation: Available` |
-| `[4/4]` | `kubectl apply -f schedule.yaml` |
+| `[4/4]` | `kubectl apply -f schedule.yaml` — **both** Schedules (`hourly-objects`, `daily-full`) |
 
 ### The Helm settings that matter
 
@@ -224,7 +246,7 @@ kubectl -n velero get schedules
 | `config.s3ForcePathStyle` | `"true"` | MinIO serves a bucket as a **path** (`minio:9000/velero`), not as a subdomain |
 | `config.region` | `us-east-1` | MinIO ignores it, the AWS SDK **refuses to sign** without one |
 | `deployNodeAgent` | `true` | no DaemonSet, no volume data — objects only |
-| `defaultVolumesToFsBackup` | `true` | covers every pod volume with no per-workload annotation |
+| `defaultVolumesToFsBackup` | `true` | covers every pod volume with no per-workload annotation — and it is a **server-level default**, which is exactly why `hourly-objects` has to set it back to `false` explicitly |
 | `uploaderType` | `kopia` | deduplicated and compressed; restic is legacy |
 | `snapshotsEnabled` | `false` | no `VolumeSnapshotLocation`: there is no snapshot controller in this lab, and an AWS-provider VSL would only produce errors |
 | `defaultBackupTTL` | `168h` | 7 days — every byte lands on the workers' shared disk |
@@ -244,12 +266,24 @@ kubectl -n velero get schedules
 ```bash
 kubectl -n velero get backupstoragelocation default        # PHASE=Available
 kubectl -n velero get pods                                 # velero + one node-agent PER NODE
-kubectl -n velero get schedules                            # daily-full
+kubectl -n velero get schedules                            # hourly-objects + daily-full
 
 # The real proof: a backup that completes, with its volumes
 velero backup create smoke --wait
 velero backup describe smoke --details | sed -n '/Phase/p;/Item/p'
 kubectl -n velero get podvolumebackups                     # one line per mounted volume, Completed
+```
+
+Check that the two cadences really differ — the count of `PodVolumeBackup`s is the tell:
+
+```bash
+# objects only: expect ZERO PodVolumeBackups for this backup
+velero backup create objs-only --snapshot-volumes=false --default-volumes-to-fs-backup=false --wait
+kubectl -n velero get podvolumebackups -l velero.io/backup-name=objs-only    # "No resources found"
+
+# objects + data: expect one PodVolumeBackup per mounted volume
+velero backup create full-now --default-volumes-to-fs-backup --wait
+kubectl -n velero get podvolumebackups -l velero.io/backup-name=full-now     # all Completed
 ```
 
 Without the CLI, the same thing with `kubectl` only:
@@ -261,14 +295,14 @@ kind: Backup
 metadata: { name: smoke, namespace: velero }
 spec: { defaultVolumesToFsBackup: true, ttl: 168h }
 EOF
-kubectl -n velero get backup smoke -o jsonpath='{.status.phase}{"\n"}'    # Completed
+kubectl -n velero get backups.velero.io smoke -o jsonpath='{.status.phase}{"\n"}'    # Completed
 ```
 
 And the objects really landed in MinIO:
 
 ```bash
 kubectl -n minio-cluster port-forward svc/minio 19010:9000 &
-mc ls -r _lab/velero/backups/smoke/
+mc ls -r labminio/velero/backups/smoke/
 kill %1
 ```
 
@@ -368,11 +402,36 @@ kubectl delete namespace demo-backup
   fresh cluster, use `velero restore create --from-backup <b> --exclude-namespaces velero`,
   otherwise the restore fights the Velero that is running it.
 - **The `Schedule` cron is read in the server's timezone** (UTC in this lab), not your
-  workstation's. `0 2 * * *` is 13:00 in Nouméa.
+  workstation's. `0 2 * * *` is 13:00 in Nouméa, and `hourly-objects` fires on the UTC hour.
+- **Restoring the newest backup is not always what you want.** With two schedules the latest
+  backup is almost always an `hourly-objects` one, which carries **no volume data**. Pick
+  deliberately: `kubectl -n velero get backups.velero.io --sort-by=.metadata.creationTimestamp` then
+  restore from the last `daily-full-*` if you need the PVC contents back.
+- **`kubectl get backups` is AMBIGUOUS in this lab and silently answers about Longhorn.**
+  Three installed CRDs claim the `Backup` kind — `longhorn.io`, `velero.io` and
+  `postgresql.cnpg.io` — and `kubectl` resolves the bare plural to Longhorn's. So
+  `kubectl -n velero get backups` prints `No resources found in velero namespace.` while
+  Velero's backups sit right there: a perfectly convincing false negative. **Always qualify
+  it**: `kubectl -n velero get backups.velero.io`. `podvolumebackups` and `schedules` are
+  unambiguous, which is what makes the trap so easy to walk into.
+- **`velero backup logs` / `describe --details` fail from your workstation.** They ask the
+  API server for a presigned URL, which is minted against the BackupStorageLocation's
+  endpoint — `http://minio.<ns>.svc.cluster.local:9000`, an in-cluster DNS name your host
+  cannot resolve (`dial tcp: lookup … no such host`). The backup itself is fine. To read the
+  logs or the error list, go through the bucket instead:
+  ```bash
+  kubectl -n <minio-ns> port-forward svc/minio 19010:9000 &
+  mc alias set labminio http://127.0.0.1:19010 admin "$ROOTPW"
+  mc cp labminio/velero/backups/<backup>/<backup>-results.gz - | gunzip | python3 -m json.tool
+  ```
 - **`velero backup delete` removes the objects from the bucket too**; `kubectl delete backup`
   removes only the Kubernetes object and leaves the tarball orphaned in MinIO.
-- **TTL is 7 days.** A lab left off for a fortnight comes back with an empty bucket — the GC
-  runs on Velero's clock, not on how much you needed that backup.
+- **The TTLs are 48 h (hourly) and 7 days (daily).** A lab left off for a fortnight comes back
+  with an empty bucket — the GC runs on Velero's clock, not on how much you needed that backup.
+- **24 hourly ticks a day is 24 more `Backup` objects a day.** At `48h` TTL that settles around
+  ~50 objects; `kubectl -n velero get backups.velero.io` gets noisy long before it gets expensive. Filter
+  with `-l velero.io/schedule-name=daily-full` when you only care about the restorable-with-data
+  ones.
 
 ## 🧹 Uninstall
 
@@ -381,7 +440,7 @@ kubectl delete -f velero/schedule.yaml
 helm uninstall velero -n velero
 kubectl delete namespace velero          # also drops the CRs; the CRDs survive
 kubectl get crd | sed -n '/velero.io/p' | awk '{print $1}' | xargs -r kubectl delete crd
-# The bucket is NOT deleted: mc rb --force _lab/velero
+# The bucket is NOT deleted: mc rb --force labminio/velero
 ```
 
 ## 📚 References

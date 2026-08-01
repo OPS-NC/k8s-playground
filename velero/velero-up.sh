@@ -16,6 +16,12 @@
 #      (values.yaml) makes that the default for every pod volume — no annotation to remember
 #      on each workload.
 #
+# WHEN each half runs — the two costs are not comparable, so neither is their cadence
+# (schedule.yaml): `hourly-objects` writes the OBJECTS every hour (one tarball, seconds), while
+# `daily-full` writes objects AND volume data once a day at 02:00 UTC, because that one re-reads
+# every pod volume in the cluster through the node-agent. ~1-hour RPO on a deleted manifest,
+# ~24-hour RPO on the bytes inside a PVC.
+#
 # WHY FSB rather than CSI snapshots: a CSI snapshot of a Longhorn volume stays INSIDE Longhorn,
 # on the very worker disks we are protecting, and it would need the external-snapshotter
 # controller plus a VolumeSnapshotClass — neither of which this lab installs. FSB copies the
@@ -125,14 +131,20 @@ done
 curl -sf -o /dev/null http://127.0.0.1:19010/minio/health/ready \
   || fail "MinIO (${MINIO_NS}) not ready after 60s — kubectl -n ${MINIO_NS} get pods"
 
-"$MC" alias set _lab http://127.0.0.1:19010 admin "$ROOTPW" >/dev/null
-"$MC" mb --ignore-existing "_lab/${VELERO_BUCKET}" >/dev/null
+# The alias name must START WITH A LETTER: since RELEASE.2025-08-13 `mc` validates it and
+# rejects the older `_lab` outright ("Alias `_lab` should have alphanumeric characters […] and
+# begin with a letter"), which failed the whole install here. Still NOT plain `lab`: that is the
+# name the README hands to a human for their own alias, and clobbering it would silently
+# repoint their shell at this port-forward.
+MC_ALIAS="${MC_ALIAS:-labminio}"
+"$MC" alias set "$MC_ALIAS" http://127.0.0.1:19010 admin "$ROOTPW" >/dev/null
+"$MC" mb --ignore-existing "${MC_ALIAS}/${VELERO_BUCKET}" >/dev/null
 POLICY="$(mktemp)"
 cat > "$POLICY" <<JSON
 { "Version":"2012-10-17","Statement":[
   {"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::${VELERO_BUCKET}","arn:aws:s3:::${VELERO_BUCKET}/*"]} ]}
 JSON
-"$MC" admin policy create _lab "${VELERO_BUCKET}-rw" "$POLICY" >/dev/null 2>&1 || true
+"$MC" admin policy create "$MC_ALIAS" "${VELERO_BUCKET}-rw" "$POLICY" >/dev/null 2>&1 || true
 
 # Idempotency, and the reason it matters: a secret key is write-only on the MinIO side. If we
 # minted a fresh one on every run, Velero's Secret and MinIO would drift apart and EVERY upload
@@ -148,10 +160,10 @@ if [ -z "$SK" ]; then
   SK="$(openssl rand -base64 21 | tr -d '/+=' | head -c 28)"
   # Nothing on our side can recover the key MinIO may still hold for this user: drop it, so
   # that the `user add` below really installs the one we are about to store.
-  "$MC" admin user remove _lab "$S3_USER" >/dev/null 2>&1 || true
+  "$MC" admin user remove "$MC_ALIAS" "$S3_USER" >/dev/null 2>&1 || true
 fi
-"$MC" admin user add _lab "$S3_USER" "$SK" >/dev/null 2>&1 || true
-"$MC" admin policy attach _lab "${VELERO_BUCKET}-rw" --user "$S3_USER" >/dev/null 2>&1 || true
+"$MC" admin user add "$MC_ALIAS" "$S3_USER" "$SK" >/dev/null 2>&1 || true
+"$MC" admin policy attach "$MC_ALIAS" "${VELERO_BUCKET}-rw" --user "$S3_USER" >/dev/null 2>&1 || true
 kill "$PF" 2>/dev/null || true; PF=""
 echo "    bucket ${VELERO_BUCKET} + user ${S3_USER} scoped to it (policy ${VELERO_BUCKET}-rw)"
 
@@ -196,19 +208,22 @@ done
   || warn "BackupStorageLocation 'default' is '${PHASE:-<none>}' — kubectl -n ${NS} logs deploy/velero | tail -30"
 
 # ============================================================================
-log "[4/4] Daily Schedule (whole cluster, TTL 7 days)"
+log "[4/4] Schedules: hourly objects + daily objects-and-volumes"
 kubectl apply -f "${HERE}/schedule.yaml"
 
 # ============================================================================
 log "Velero installed."
 echo "  Backend    : ${S3_URL}/${VELERO_BUCKET}  (MinIO namespace ${MINIO_NS})"
 echo "  Covers     : every K8s object + every pod volume (FSB/kopia) — Longhorn PVs included"
-echo "  Schedule   : daily-full, 02:00 UTC, TTL 168h  (kubectl -n ${NS} get schedules)"
+echo "  Schedules  : hourly-objects  '0 * * * *'  objects only,      TTL 48h"
+echo "               daily-full      '0 2 * * *'  objects + PV data, TTL 168h"
+echo "               (kubectl -n ${NS} get schedules)"
 echo "  Access key : kubectl -n ${NS} get secret velero-s3 -o jsonpath='{.data.cloud}' | base64 -d"
 echo
 echo "  Backup now : velero backup create manual-1 --wait          (CLI)"
 echo "               a Backup object does the same without the CLI — see velero/README.md"
-echo "  Follow it  : kubectl -n ${NS} get backups,podvolumebackups"
+echo "  Follow it  : kubectl -n ${NS} get backups.velero.io,podvolumebackups"
+echo "               ('backups' alone hits Longhorn's CRD of the same name — see the README)"
 echo "  Health     : kubectl -n ${NS} get backupstoragelocation default"
 echo
 echo "  /!\\ The 'velero' CLI is optional here, but a restore without it is painful:"
