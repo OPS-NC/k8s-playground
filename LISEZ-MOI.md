@@ -132,39 +132,49 @@ git submodule update --remote _k8s        # amène _k8s/ sur le dernier commit d
 > **est** la montée de version de la couche applicative, et c'est lui qui garde le lab
 > reproductible.
 
-## 📍 Où sont trouvés `lab.env` et `_out/` — `LAB_DIR`
+## 📍 Où sont trouvés `lab.env` et `_out/`
 
 Les scripts ne stockent **rien**. `lab.env` (l'intention : domaine, mode TLS, CNI, taille des
 VM) et `_out/` (les faits : `talosconfig`, `cluster.env`, l'AC locale dans `_out/self-signed/`,
 `_out/vault-init.json`…) vivent dans le dépôt du **lab**, avec le `kubeconfig` juste à côté, à
-sa racine. `_resoudre_lab_dir()`, dans `lib/common.sh`, cherche ce dossier dans cet ordre :
+sa racine. Il n'y a qu'**une** source de vérité pour la topologie, celle du lab — c'est
+pourquoi ce dépôt ne porte ni `lab.env`, ni modèle de `lab.env`. `_resoudre_lab_dir()`, dans
+`lib/common.sh`, cherche ce dossier dans cet ordre :
 
 | # | Candidat | S'applique quand |
 |---|---|---|
-| 1 | `$LAB_DIR`, à défaut le dossier qui porte `$LAB_ENV` | l'une des deux est exportée — **gagne toujours**, dans les deux dispositions |
-| 2 | la racine de **ce** dépôt | un fichier `lab.env` ou un dossier `_out/` s'y trouve (un lien symbolique compte) |
-| 3 | `<racine de ce dépôt>/../$LAB_REPO_NAME` — `Vagrant-Talos` ou `Vagrant-KubeADM`, posé par le profil de distribution | ce dossier existe ⇒ **dépôts voisins**, rien à déclarer |
-| 4 | repli : la racine de ce dépôt | rien de ce qui précède n'a matché — et ça se produit **silencieusement** |
+| 1 | `$LAB_DIR`, à défaut le dossier qui porte `$LAB_ENV` | l'une des deux est exportée — surcharge explicite, **gagne toujours** |
+| 2 | le dossier **parent** de ce dépôt, s'il porte un `Vagrantfile` | **disposition sous-module** : ce dépôt *est* `<lab>/_k8s`, le lab est donc juste au-dessus |
+| 3 | `<racine de ce dépôt>/../$LAB_REPO_NAME` — `Vagrant-Talos` ou `Vagrant-KubeADM`, posé par le profil de distribution | ce dossier existe ⇒ **dépôts voisins** (seulement une fois le profil chargé) |
+| 4 | la racine de **ce** dépôt | un fichier `lab.env` ou un dossier `_out/` s'y trouve (un lien symbolique compte) — usage autonome |
+| 5 | repli : la racine de ce dépôt | rien de ce qui précède n'a matché |
 
 `KUBECONFIG` suit le même dossier : s'il n'est pas déjà exporté, il devient
 `<dossier du lab>/kubeconfig`.
 
-> ⚠️ **En sous-module, la règle 3 ne peut jamais matcher : `export LAB_DIR="$PWD"`.** La racine
-> de ce dépôt est alors `Vagrant-KubeADM/_k8s`, donc `<racine>/../Vagrant-KubeADM` donne
-> `Vagrant-KubeADM/Vagrant-KubeADM` — un chemin qui n'existe pas. La résolution tombe donc sur
-> la règle 4 : **ce dépôt lui-même**, qui ne porte ni `lab.env` ni `_out/`. Rien ne casse
-> bruyamment. Les scripts tournent avec les **défauts du profil** — `<distro>.lab.example.io`
-> au lieu de ton `LAB_DOMAIN` (donc un Secret TLS wildcard sous un nom qu'aucun addon n'ira
-> chercher), `CNI=cilium` au lieu du CNI choisi, `POD_CIDR` / `HOSTONLY_IF` /
-> `KUBE_PROXY_REPLACEMENT` DEVINÉS au lieu de ceux détectés par `cluster-up.sh` — et
-> `KUBECONFIG` pointe sur un fichier inexistant, donc `kubectl` s'adresse au contexte ambiant
-> que tu traînes, ou à rien du tout. La règle 1 existe exactement pour ce cas : exporte
-> `LAB_DIR` à côté de `KUBECONFIG`, depuis la racine du lab, **à chaque fois**.
+> ℹ️ **Pourquoi le test porte sur `Vagrantfile`, et pourquoi il passe avant la règle 4.** Un
+> `Vagrantfile` est la marque non ambiguë d'un lab : il est là **dès le clone**, avant tout
+> `vagrant up`, et il n'apparaît jamais au-dessus de ce dépôt en disposition voisine — où le
+> parent n'est qu'un dossier de travail quelconque. L'ordonner **avant** la règle « racine de
+> ce dépôt » est délibéré : un `_out/` résiduel (ou un `lab.env` déposé ici pour un test
+> ponctuel) ne doit jamais masquer le vrai lab qui se trouve juste au-dessus. `LAB_DIR` /
+> `LAB_ENV` restent au-dessus de tout : une surcharge qu'on peut mettre en minorité n'est pas
+> une surcharge.
+
+> ⚠️ **C'est exactement la panne que la règle du parent supprime.** Avant elle, la disposition
+> sous-module résolvait `<racine>/../Vagrant-KubeADM` en `Vagrant-KubeADM/Vagrant-KubeADM` — un
+> chemin qui n'existe pas — et retombait sur *ce dépôt lui-même*, qui ne porte ni `lab.env` ni
+> `_out/`. Rien ne cassait bruyamment : les scripts tournaient avec les **défauts du profil** —
+> `<distro>.lab.example.io` au lieu de ton `LAB_DOMAIN` (donc un Secret TLS wildcard sous un
+> nom qu'aucun addon n'irait chercher), `CNI=cilium` au lieu du CNI choisi, `POD_CIDR` /
+> `HOSTONLY_IF` / `KUBE_PROXY_REPLACEMENT` DEVINÉS au lieu de ceux détectés par
+> `cluster-up.sh`, et un `KUBECONFIG` pointant sur un fichier inexistant. Si tu revois cette
+> forme de symptôme, c'est un problème de **résolution** : lis d'abord la ligne de résumé.
 
 > 💡 **Un signal se déclenche quand même, sur kubeadm seulement.** `platform-up.sh` avertit
 > quand `_out/cluster.env` est absent — *« `./kubeadm/cluster-up.sh` n'a pas (ou pas jusqu'au
-> bout) été lancé »*. À lire d'abord comme un problème de résolution : neuf fois sur dix le
-> fichier existe et c'est `LAB_DIR` qui manque. L'avertissement est **non bloquant**, et sur
+> bout) été lancé »*. Deux lectures : soit le bootstrap n'est effectivement pas allé au bout,
+> soit ce n'est pas le bon lab qui a été résolu. L'avertissement est **non bloquant**, et sur
 > Talos il n'a pas d'équivalent (ce lab n'a pas de `cluster.env`).
 
 Chaque script affiche sa résolution avant de toucher à quoi que ce soit — une ligne, à lire :
@@ -174,7 +184,7 @@ Chaque script affiche sa résolution avant de toucher à quoi que ce soit — un
 ```
 
 `lab.env absent (défauts)` sur un lab qui *a* pourtant un `lab.env`, ou un `domaine` qui n'est
-pas celui que tu as posé : la résolution a raté, et `LAB_DIR` est le correctif.
+pas celui que tu as posé : la résolution a manqué le lab — force-la avec `LAB_DIR`.
 
 Tout surcharger à la main reste possible — utile pour un lab rangé ailleurs, ou pour exercer ce
 dépôt isolément :
@@ -183,8 +193,12 @@ dépôt isolément :
 LAB_DIR=~/labs/mon-lab   ./install.sh talos platform      # lab.env + _out/ + kubeconfig, tout est là
 LAB_ENV=~/labs/mon-lab/lab.env  ./install.sh talos platform   # son dossier devient le dossier du lab
 LAB_ENV=~/labs/mon-lab/lab.env  KUBECONFIG=~/labs/mon-lab/kubeconfig  ./install.sh talos platform
-cp lab.env.example lab.env && ./install.sh talos platform    # règle 2 : test autonome
 ```
+
+> ⚠️ **Ne crée pas de `lab.env` à la racine de ce dépôt.** La règle 4 en accepte un, et il est
+> là pour exercer ce dépôt sans aucun lab — mais un second `lab.env` est une seconde vérité,
+> qui diverge de celle du lab dès que l'une des deux bouge. C'est précisément pour ça qu'il n'y
+> a **pas de `lab.env.example` ici** : le modèle à copier vit dans le lab.
 
 ## 🎯 Comment la distribution est choisie
 
@@ -196,19 +210,38 @@ Par ordre de priorité :
 | 2 | `--distro=` | `./platform-up.sh --distro=kubeadm` |
 | 3 | variable d'environnement | `K8S_DISTRO=talos ./install.sh longhorn` |
 | 4 | `DISTRO=` dans le `lab.env` du lab | `DISTRO=kubeadm` |
-| 5 | **détection** sur le cluster | `osImage` du 1er node : `Talos …` → `talos`, sinon `kubeadm` |
+| 5 | la **structure** du lab | `talos/cluster-up.sh` → `talos` · `kubeadm/cluster-up.sh` → `kubeadm` |
+| 6 | les **artefacts de bootstrap** du lab | `_out/talosconfig` → `talos` · `_out/cluster.env` → `kubeadm` |
+| 7 | **sondage** du cluster | `osImage` du 1er node : `Talos …` → `talos`, sinon `kubeadm` |
+
+Les sources 5 à 7 sont `_detecter_distro()`, trois familles de signaux classées par la
+précocité avec laquelle elles deviennent disponibles :
+
+| Signal | Disponible dès | Coût |
+|---|---|---|
+| **structure** — le script de bootstrap de la distribution que le lab implémente | le `git clone`, **avant tout `vagrant up`** | nul : un test de fichier |
+| **artefacts** — ce que le bootstrap a écrit dans `_out/` | après `cluster-up.sh` | nul : un test de fichier. Couvre un lab dont les dossiers ont été renommés |
+| **sondage** — `kubectl get nodes -o jsonpath=…osImage` | un cluster debout **et** un `KUBECONFIG` qui pointe déjà dessus | dernier recours seulement |
+
+> ℹ️ **Pourquoi le sondage est en dernier.** Il exige un `KUBECONFIG` déjà correct — or
+> `KUBECONFIG` est dérivé du dossier du lab, qui vient du *profil*, qui n'est chargé qu'une
+> fois la distribution connue. Par construction, le sondage est donc le signal le moins
+> disponible à l'instant précis où on en a besoin : il ne répond jamais que pour un contexte
+> `kubectl` ambiant. Les sources 5 et 6 lisent le lab directement et n'ont pas cette
+> dépendance.
 
 Sans aucune de ces sources, les scripts **refusent de démarrer** : appliquer un manifeste
 pensé pour Talos sur Debian (ou l'inverse) ne produit pas une erreur franche mais une panne
 silencieuse — un `Deployment` créé dont aucun pod ne démarre, par exemple.
 
-> ℹ️ **La source 4 a un problème de poule et d'œuf.** `lab.env` doit être localisé *avant* que
-> la distribution soit connue, et à cet instant `LAB_REPO_NAME` — dont dépend la règle 3 de la
-> section précédente — vient d'un profil qui n'est pas encore chargé. Donc `DISTRO=` dans le
-> `lab.env` d'un lab n'est lu que si le dossier du lab est **explicite** (`LAB_DIR` /
-> `LAB_ENV`), ou si le `lab.env` est à la racine de ce dépôt ; sinon la résolution poursuit
-> jusqu'à la détection sur le cluster (source 5). Passer la distribution en premier argument,
-> comme le font tous les exemples, évite complètement la question.
+> ℹ️ **Les sources 4 à 6 exigent que le lab soit localisé d'abord — et c'est là que la
+> disposition compte.** En **sous-module**, la règle du parent-`Vagrantfile` s'applique avant
+> tout chargement de profil : les trois fonctionnent donc nues, et c'est ce qui rend
+> `./_k8s/platform-up.sh` autosuffisant. En **dépôts voisins**, le lab n'est joignable que par
+> `LAB_REPO_NAME`, que pose le profil — celui-là même qu'on cherche à choisir. La résolution
+> poursuit alors jusqu'au sondage (source 7). Depuis la racine de ce dépôt : passe la
+> distribution, ou exporte `LAB_DIR`. Un argument explicite court-circuite toute la question et
+> reste le moyen le plus sûr de savoir ce qu'on a lancé.
 
 ## 🧬 Ce qui diffère vraiment entre les deux labs
 
@@ -242,7 +275,7 @@ distributions.
 ## 🗂️ Organisation du dépôt
 
 ```
-install.sh                  point d'entrée : ./install.sh <talos|kubeadm> <composant...>
+install.sh                  point d'entrée : ./install.sh [talos|kubeadm] <composant...>
 platform-up.sh              la plateforme de base (CNI → Gateway → metrics → TLS)
 metric-server.yaml          metrics-server (appliqué par platform-up.sh)
 lib/
@@ -262,9 +295,11 @@ En sous-module, tout cet arbre est sous le `_k8s/` du lab — `./_k8s/install.sh
 dépôt sont les mêmes dans les deux dispositions, et c'est pour ça que chaque pas-à-pas est
 écrit depuis la racine de ce dépôt.
 
-Il n'y a **ni `Vagrantfile` ni `_out/` ici**, et c'est voulu : ce dépôt porte les manifestes,
-le lab porte le cluster et son état — cf.
-[Où sont trouvés `lab.env` et `_out/`](#-où-sont-trouvés-labenv-et-_out--lab_dir).
+Il n'y a **ni `Vagrantfile`, ni `_out/`, ni `lab.env` ici**, et c'est voulu : ce dépôt porte
+les manifestes, le lab porte le cluster et son état. Cette absence est structurante — c'est
+elle qui fait de « le parent porte un `Vagrantfile` » un repère non ambigu, et qui empêche un
+second `lab.env` de venir concurrencer le vrai. Cf.
+[Où sont trouvés `lab.env` et `_out/`](#-où-sont-trouvés-labenv-et-_out).
 
 ## 🔗 Chaîne de dépendances
 
@@ -355,7 +390,11 @@ d'environnement.
 
 ## 🗺️ Le catalogue
 
-`./install.sh <distro> list` affiche la même liste, à jour.
+`./install.sh list` affiche la même liste, à jour.
+
+> ℹ️ Les commandes ci-dessous explicitent `<distro>` parce qu'elles sont écrites depuis la
+> racine de **ce** dépôt, où il vaut mieux le passer. Depuis la racine d'un lab, laisse-le
+> tomber : `./_k8s/install.sh longhorn`.
 
 ### 🌐 Réseau & TLS
 
