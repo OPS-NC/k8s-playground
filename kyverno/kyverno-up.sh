@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# kyverno-up.sh — installe Kyverno (policy engine) + Policy Reporter (UI) sur un cluster
-# kubeadm déjà doté de la plateforme (Cilium + Envoy Gateway + cert-manager, cf. platform-up.sh).
+# kyverno-up.sh — installs Kyverno (the policy engine) + Policy Reporter (UI) on a cluster
+# that already has the platform (Cilium + Envoy Gateway + cert-manager, see platform-up.sh).
 #
-# Ordre :
-#   1. Kyverno            contrôleurs (admission/background/cleanup/reports) via Helm
-#   2. Policies           ClusterPolicy pédagogiques (validate Audit + mutate + generate)
-#   3. Policy Reporter    agrégation des PolicyReport + UI web
-#   4. HTTPRoute          expose l'UI sous kyverno.$LAB_DOMAIN (main-gateway)
+# Order:
+#   1. Kyverno            controllers (admission/background/cleanup/reports) through Helm
+#   2. Policies           teaching ClusterPolicies (validate Audit + mutate + generate)
+#   3. Policy Reporter    PolicyReport aggregation + web UI
+#   4. HTTPRoute          exposes the UI at kyverno.$LAB_DOMAIN (main-gateway)
 #
-# Idempotent : `helm upgrade --install` + `kubectl apply`. Relançable sans casse.
+# Idempotent: `helm upgrade --install` + `kubectl apply`. Safe to re-run.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,11 +17,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${HERE}/../lib/common.sh"
 k8s_init "$@"
 
-# --- Versions épinglées (overridables par variable d'env) -------------------
+# --- Pinned versions (overridable through an environment variable) -----------
 KYVERNO_VERSION="${KYVERNO_VERSION:-3.8.2}"            # app v1.18.2
 POLICY_REPORTER_VERSION="${POLICY_REPORTER_VERSION:-3.9.1}"
 
-# --- Pré-requis -------------------------------------------------------------
+# --- Prerequisites ----------------------------------------------------------
 need kubectl helm
 require_apiserver
 
@@ -34,12 +34,12 @@ helm upgrade --install kyverno kyverno/kyverno -n kyverno --create-namespace \
   --values "${HERE}/values.yaml"
 kubectl -n kyverno rollout status deploy/kyverno-admission-controller --timeout=180s
 
-log "[2/4] Policies pédagogiques (validate Audit + mutate + generate)"
+log "[2/4] Teaching policies (validate Audit + mutate + generate)"
 kubectl apply -f "${HERE}/policies/"
-echo "    policies chargées :"
+echo "    policies loaded:"
 kubectl get clusterpolicy
 
-log "[3/4] Policy Reporter ${POLICY_REPORTER_VERSION} + UI + plugin Kyverno"
+log "[3/4] Policy Reporter ${POLICY_REPORTER_VERSION} + UI + Kyverno plugin"
 helm repo add policy-reporter https://kyverno.github.io/policy-reporter >/dev/null 2>&1 || true
 helm repo update policy-reporter >/dev/null
 helm upgrade --install policy-reporter policy-reporter/policy-reporter -n kyverno \
@@ -51,8 +51,8 @@ log "[4/4] HTTPRoute (kyverno.${LAB_DOMAIN})"
 render "${HERE}/httproute.yaml" | kubectl apply -f -
 
 # ============================================================================
-log "Kyverno installé."
-echo "  Policies    : $(kubectl get clusterpolicy --no-headers 2>/dev/null | wc -l) ClusterPolicy (validate en Audit)"
-echo "  Rapports    : kubectl get policyreport -A   /   kubectl get clusterpolicyreport"
-echo "  UI          : https://kyverno.${LAB_DOMAIN}  (via main-gateway, cert wildcard)"
-echo "  Test        : curl --resolve kyverno.${LAB_DOMAIN}:443:192.168.56.200 https://kyverno.${LAB_DOMAIN}/"
+log "Kyverno installed."
+echo "  Policies : $(kubectl get clusterpolicy --no-headers 2>/dev/null | wc -l) ClusterPolicy (validate in Audit)"
+echo "  Reports  : kubectl get policyreport -A   /   kubectl get clusterpolicyreport"
+echo "  UI       : https://kyverno.${LAB_DOMAIN}  (through main-gateway, wildcard cert)"
+echo "  Test     : curl --resolve kyverno.${LAB_DOMAIN}:443:192.168.56.200 https://kyverno.${LAB_DOMAIN}/"
