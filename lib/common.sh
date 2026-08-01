@@ -50,22 +50,47 @@ need() {
 }
 
 # --- Où sont les fichiers du lab (lab.env, _out/) ? --------------------------
-# Ce dépôt ne contient PAS de Vagrantfile : le cluster est monté par l'un des deux labs
-# voisins, et c'est LUI qui porte `lab.env` (l'intention) et `_out/` (les faits : kubeconfig,
-# talosconfig, cluster.env). On les cherche donc, dans l'ordre :
-#   1. $LAB_ENV / $LAB_DIR (explicites)
-#   2. la racine de ce dépôt (utile si tu y déposes un lab.env ou un lien symbolique)
-#   3. le dépôt Vagrant voisin correspondant à la distribution choisie
+# Ce dépôt ne contient NI Vagrantfile NI lab.env, et c'est délibéré : il n'y a qu'UNE
+# source de vérité pour la topologie, celle du lab Vagrant qui monte le cluster. C'est lui
+# qui porte `lab.env` (l'intention) et `_out/` (les faits : kubeconfig, talosconfig,
+# cluster.env). Il faut donc le localiser.
+#
+# La disposition NORMALE est le sous-module : ce dépôt est monté sur `<lab>/_k8s`, donc le
+# lab est tout simplement le dossier parent. On le reconnaît à son `Vagrantfile` — signal
+# non ambigu, présent dès le clone, avant même tout `vagrant up`.
+#
+# Ordre de résolution :
+#   1. $LAB_DIR / $LAB_ENV                  surcharge explicite, gagne toujours
+#   2. le dossier PARENT s'il porte un Vagrantfile    => disposition sous-module
+#   3. ../$LAB_REPO_NAME                    => disposition « dépôts voisins »
+#      (n'est connu qu'APRÈS le chargement du profil, cf. k8s_init : ce candidat n'est
+#       donc évalué qu'au second appel)
+#   4. la racine de ce dépôt si on y a déposé un lab.env ou un _out/  (usage autonome)
+#   5. repli : la racine de ce dépôt
+_est_un_lab() { [ -f "$1/Vagrantfile" ]; }
+
 _resoudre_lab_dir() {
   local candidat
   if [ -n "${LAB_DIR:-}" ]; then printf '%s' "$LAB_DIR"; return; fi
   if [ -n "${LAB_ENV:-}" ]; then printf '%s' "$(cd "$(dirname "$LAB_ENV")" && pwd)"; return; fi
+
+  # Disposition sous-module : `<lab>/_k8s` -> le lab est le parent. Testé AVANT la racine
+  # de ce dépôt, pour qu'un `_out/` résiduel traînant ici ne prenne jamais le pas sur le
+  # vrai lab. Le test `Vagrantfile` évite tout faux positif en disposition voisine, où le
+  # parent est un simple dossier de travail sans Vagrantfile.
+  if _est_un_lab "${REPO_ROOT}/.."; then
+    printf '%s' "$(cd "${REPO_ROOT}/.." && pwd)"; return
+  fi
+
+  # Disposition « dépôts voisins » : ../Vagrant-Talos ou ../Vagrant-KubeADM.
+  candidat="${REPO_ROOT}/../${LAB_REPO_NAME:-}"
+  if [ -n "${LAB_REPO_NAME:-}" ] && [ -d "$candidat" ]; then
+    printf '%s' "$(cd "$candidat" && pwd)"; return
+  fi
+
   if [ -f "${REPO_ROOT}/lab.env" ] || [ -d "${REPO_ROOT}/_out" ]; then
     printf '%s' "$REPO_ROOT"; return
   fi
-  for candidat in "${REPO_ROOT}/../${LAB_REPO_NAME:-}" ; do
-    [ -n "${LAB_REPO_NAME:-}" ] && [ -d "$candidat" ] && { printf '%s' "$(cd "$candidat" && pwd)"; return; }
-  done
   printf '%s' "$REPO_ROOT"
 }
 
@@ -101,11 +126,39 @@ lire_param() {
   printf '%s' "${v:-$2}"
 }
 
-# --- Détection de la distribution sur un cluster en marche -------------------
-# `osImage` du premier node : « Talos (v1.13.7) » sur Talos, « Debian GNU/Linux 13 (trixie) »
-# sur le lab kubeadm. C'est le dernier recours, uniquement si rien n'a été déclaré.
+# --- Détection de la distribution ---------------------------------------------
+# Objectif : que `./_k8s/platform-up.sh` fonctionne depuis la racine de n'importe lequel
+# des deux labs, SANS argument ni variable. On regarde donc d'abord le lab lui-même.
+#
+# Deux familles de signaux, du plus fiable au moins fiable :
+#
+#   1. La STRUCTURE du lab. Chaque dépôt Vagrant porte le script de bootstrap de sa
+#      distribution : `talos/cluster-up.sh` ou `kubeadm/cluster-up.sh`. Présent dès le
+#      clone, donc AVANT tout `vagrant up` — c'est le signal le plus tôt disponible, et
+#      celui qui ne dépend d'aucun cluster en marche.
+#   2. Les ARTEFACTS de bootstrap dans `_out/` : `talosconfig` n'existe que sur Talos,
+#      `cluster.env` n'est écrit que par kubeadm/cluster-up.sh. Utile si la structure a
+#      été renommée.
+#
+# Le sondage du cluster (`osImage` du premier node) reste en DERNIER recours : il exige un
+# cluster déjà debout ET un KUBECONFIG déjà correct — or KUBECONFIG n'est positionné
+# qu'APRÈS la résolution de la distro (il dépend du profil). C'est donc, par construction,
+# le signal le moins disponible au moment où on en a besoin.
+#
+# $1 = dossier du lab (peut être vide : on se rabat alors sur le sondage du cluster).
 _detecter_distro() {
-  local os
+  local lab="${1:-}" os
+
+  if [ -n "$lab" ]; then
+    # 1. structure du dépôt Vagrant
+    [ -f "${lab}/talos/cluster-up.sh" ]   && { printf 'talos'   ; return; }
+    [ -f "${lab}/kubeadm/cluster-up.sh" ] && { printf 'kubeadm' ; return; }
+    # 2. artefacts laissés par le bootstrap
+    [ -f "${lab}/_out/talosconfig" ]      && { printf 'talos'   ; return; }
+    [ -f "${lab}/_out/cluster.env" ]      && { printf 'kubeadm' ; return; }
+  fi
+
+  # 3. dernier recours : l'OS des nodes d'un cluster déjà joignable.
   os="$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.osImage}' 2>/dev/null || true)"
   case "$os" in
     *Talos*) printf 'talos' ;;
@@ -117,6 +170,11 @@ _detecter_distro() {
 usage_distro() {
   cat >&2 <<EOF
 Distribution cible non déterminée.
+
+  Depuis la racine d'un lab Vagrant, elle est DÉTECTÉE toute seule (présence de
+  talos/cluster-up.sh ou kubeadm/cluster-up.sh) : tu ne devrais pas voir ce message.
+  Si tu le vois, c'est que le lab n'a pas été localisé — vérifie que ce dépôt est bien
+  monté en sous-module sur <lab>/_k8s, ou force le chemin :  LAB_DIR=/chemin/du/lab
 
   Passe-la en argument :        $(basename "${BASH_SOURCE[2]:-$0}") <talos|kubeadm>
   ou en variable d'env :        K8S_DISTRO=talos $(basename "${BASH_SOURCE[2]:-$0}")
@@ -143,12 +201,16 @@ k8s_init() {
   done
   [ -z "$distro" ] && distro="${K8S_DISTRO:-${DISTRO:-}}"
 
-  # lab.env peut porter la distro : il faut donc le localiser AVANT de la connaître, d'où
-  # cette première résolution sans nom de dépôt voisin (elle ne regarde que $LAB_*/racine).
-  LAB_ENV_FILE="${LAB_ENV:-$(_resoudre_lab_dir)/lab.env}"
+  # lab.env peut porter la distro : il faut donc localiser le lab AVANT de la connaître.
+  # Cette première résolution ne dispose pas encore de LAB_REPO_NAME (posé par le profil),
+  # mais la règle « le parent porte un Vagrantfile » suffit en disposition sous-module —
+  # c'est ce qui permet à `./_k8s/platform-up.sh` de marcher sans le moindre argument.
+  local lab_tot
+  lab_tot="$(_resoudre_lab_dir)"
+  LAB_ENV_FILE="${LAB_ENV:-${lab_tot}/lab.env}"
   [ -z "$distro" ] && distro="$(lire_lab_env DISTRO)"
   [ -z "$distro" ] && distro="$(lire_lab_env K8S_DISTRO)"
-  [ -z "$distro" ] && distro="$(_detecter_distro)"
+  [ -z "$distro" ] && distro="$(_detecter_distro "$lab_tot")"
   [ -z "$distro" ] && usage_distro
 
   case "$distro" in
