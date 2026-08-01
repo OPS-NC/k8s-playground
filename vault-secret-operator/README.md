@@ -89,19 +89,31 @@ export VAULT_TOKEN=<root-token>                                  # see ../vault-
 ./vault-secret-operator/vault/lab-kv.sh
 
 # 2. The operator (chart pinned to 1.5.0)
+./install.sh <distro> vso                # or ./vault-secret-operator/vso-up.sh <distro>
+
+# 3. The CRs on the cluster side                                    -> see k8s/README.md
+kubectl apply -f vault-secret-operator/k8s/nginx-test-vault/nginx-test-vault.yaml
+```
+
+Chart **1.5.0** = app version **1.5.0**.
+
+> ℹ️ **`vso-up.sh` installs step 2 and nothing else**, on purpose. Step 1 needs an admin
+> `VAULT_TOKEN` — a credential that has no business in a script `install.sh all` runs in a
+> loop — and step 3 is inert until step 1 has created the matching role: VSO connects, Vault
+> refuses, and the `Secret` is never filled. The operator alone is harmless: it waits for CRs.
+
+<details>
+<summary>What <code>vso-up.sh</code> runs, in full</summary>
+
+```bash
 helm repo add hashicorp https://helm.releases.hashicorp.com && helm repo update
 helm upgrade --install vault-secrets-operator hashicorp/vault-secrets-operator \
   --namespace vault-secrets-operator --create-namespace \
   --version 1.5.0 \
   -f vault-secret-operator/values.yaml
 kubectl -n vault-secrets-operator rollout status deploy/vault-secrets-operator-controller-manager
-
-# 3. The CRs on the cluster side                                    -> see k8s/README.md
-kubectl apply -f vault-secret-operator/k8s/nginx-test-vault/nginx-test-vault.yaml
 ```
-
-Chart **1.5.0** = app version **1.5.0**. No `*-up.sh` here: the two halves install separately,
-and in that order.
+</details>
 
 ## 🧬 Talos vs kubeadm
 
