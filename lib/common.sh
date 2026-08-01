@@ -158,7 +158,17 @@ _detecter_distro() {
     [ -f "${lab}/_out/cluster.env" ]      && { printf 'kubeadm' ; return; }
   fi
 
-  # 3. dernier recours : l'OS des nodes d'un cluster déjà joignable.
+  # 3. disposition « dépôts voisins ». On ne peut PAS s'appuyer sur LAB_REPO_NAME ici :
+  # il est posé par le profil, donc après la résolution de la distro — l'œuf et la poule.
+  # On regarde donc directement les deux voisins possibles. S'ils sont tous les deux là,
+  # on ne tranche pas : mieux vaut demander que deviner et se tromper de cluster.
+  local voisin_talos=0 voisin_kubeadm=0
+  [ -f "${REPO_ROOT}/../Vagrant-Talos/talos/cluster-up.sh" ]     && voisin_talos=1
+  [ -f "${REPO_ROOT}/../Vagrant-KubeADM/kubeadm/cluster-up.sh" ] && voisin_kubeadm=1
+  if [ "$voisin_talos" = 1 ] && [ "$voisin_kubeadm" = 0 ]; then printf 'talos'  ; return; fi
+  if [ "$voisin_kubeadm" = 1 ] && [ "$voisin_talos" = 0 ]; then printf 'kubeadm'; return; fi
+
+  # 4. dernier recours : l'OS des nodes d'un cluster déjà joignable.
   os="$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.osImage}' 2>/dev/null || true)"
   case "$os" in
     *Talos*) printf 'talos' ;;
