@@ -1,23 +1,23 @@
-# cluster-demo.yaml — un cluster PostgreSQL HA de démonstration, géré par CloudNativePG.
+# cluster-demo.yaml — a demo HA PostgreSQL cluster, managed by CloudNativePG.
 #
-# 3 instances (1 primaire + 2 réplicas en streaming), une par worker grâce à l'anti-
-# affinité par défaut. Stockage : PVC 1Gi RWO sur Longhorn (répliqué au niveau bloc PAR
-# Longhorn, en plus de la réplication logique PostgreSQL — deux couches distinctes).
+# 3 instances (1 primary + 2 streaming replicas), one per worker thanks to the default
+# anti-affinity. Storage: a 1Gi RWO PVC on Longhorn (replicated at the block level BY Longhorn,
+# on top of PostgreSQL's logical replication — two distinct layers).
 #
-# À la création, l'opérateur génère automatiquement :
-#   - une base `app` + un utilisateur `app`,
-#   - le Secret `pg-demo-app` (identifiants applicatifs : host, user, password, dbname, uri),
-#   - un Service `pg-demo-rw` (lecture/écriture → primaire) et `pg-demo-ro` (lecture → réplicas).
+# On creation the operator automatically generates:
+#   - an `app` database + an `app` user,
+#   - the `pg-demo-app` Secret (application credentials: host, user, password, dbname, uri),
+#   - a `pg-demo-rw` Service (read/write → the primary) and `pg-demo-ro` (read → the replicas).
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: cnpg-demo
-# PostgreSQL réplique DÉJÀ ses données via les 3 instances CNPG (réplication streaming) : on
-# stocke donc chaque instance sur la StorageClass socle `longhorn-r1` (1 réplica bloc, définie
-# dans longhorn/longhorn-r1-storageclass.yaml). Empiler 3 réplicas Longhorn PAR instance
-# ferait 9 copies du même jeu pour 3 nœuds logiques — gâchis + saturation du disque OS ~20Go.
-# Si un node meurt, CNPG reconstruit l'instance perdue depuis le primaire.
+# PostgreSQL ALREADY replicates its data through the 3 CNPG instances (streaming replication):
+# so we store each instance on the base `longhorn-r1` StorageClass (1 block replica, defined in
+# longhorn/longhorn-r1-storageclass.yaml). Stacking 3 Longhorn replicas PER instance would make
+# 9 copies of the same dataset for 3 logical nodes — a waste, and it saturates the ~20 GB OS
+# disk. If a node dies, CNPG rebuilds the lost instance from the primary.
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -25,15 +25,15 @@ metadata:
   name: pg-demo
   namespace: cnpg-demo
 spec:
-  # 3 nœuds = 1 primaire + 2 réplicas synchronisés par réplication streaming.
+  # 3 nodes = 1 primary + 2 replicas kept in sync by streaming replication.
   instances: 3
 
-  # Stockage par instance : 1Gi RWO sur la SC socle longhorn-r1 (1 réplica bloc).
+  # Storage per instance: 1Gi RWO on the base longhorn-r1 SC (1 block replica).
   storage:
     size: 1Gi
     storageClass: longhorn-r1
 
-  # Ressources par instance — calibrées pour des workers à 4 Go (cf. lab.env WK_MEM).
+  # Resources per instance — sized for 4 GB workers (see WK_MEM in lab.env).
   resources:
     requests:
       memory: 256Mi
@@ -41,14 +41,14 @@ spec:
     limits:
       memory: 512Mi
 
-  # Réglages PostgreSQL adaptés à un petit cluster de lab.
+  # PostgreSQL settings suited to a small lab cluster.
   postgresql:
     parameters:
       max_connections: "100"
       shared_buffers: "128MB"
 
-  # PodMonitor désactivé tant que kube-prometheus-stack n'est pas installé (voir README).
+  # PodMonitor disabled until kube-prometheus-stack is installed (see the README).
   monitoring:
     enablePodMonitor: false
 
-  # (bootstrap par défaut : crée la base `app` + l'utilisateur `app` + le Secret pg-demo-app)
+  # (default bootstrap: creates the `app` database + the `app` user + the pg-demo-app Secret)
