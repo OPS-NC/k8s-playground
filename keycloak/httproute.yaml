@@ -1,0 +1,32 @@
+# Expose la console d'admin et les endpoints OIDC de Keycloak en HTTPS sous
+# `keycloak.lab.example.io`, derrière `main-gateway` (Envoy Gateway). Le TLS est le
+# wildcard `*.lab.example.io` déjà porté par l'écouteur `https` — aucun Certificate
+# à créer, le wildcard couvre `keycloak.lab.example.io`.
+#
+# La route vit dans le namespace `keycloak` mais s'attache au Gateway du namespace
+# `envoy-gateway-system` : possible car `main-gateway` ouvre ses écouteurs à `from: All`.
+# Backend dans le même namespace que la route → pas de ReferenceGrant.
+#
+# ⚠️ Le hostname doit être EXACTEMENT celui de `spec.hostname.hostname` du CR Keycloak
+#    (02-keycloak.yaml). Un écart et l'issuer annoncé dans
+#    `/realms/lab/.well-known/openid-configuration` ne correspond plus à l'URL réellement
+#    appelée : tous les clients OIDC rejettent alors les jetons (« issuer mismatch »).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  parentRefs:
+    - name: main-gateway
+      namespace: envoy-gateway-system
+      sectionName: https          # cible l'écouteur TLS :443
+  hostnames:
+    - keycloak.lab.example.io    # matche le wildcard *.lab.example.io
+  rules:
+    - backendRefs:
+        # `keycloak-service` est créé par l'opérateur (nom du CR + `-service`) ; le port
+        # 8080 n'existe que parce que `http.httpEnabled: true` — Envoy fait le HTTPS
+        # devant, Keycloak parle en clair derrière.
+        - name: keycloak-service
+          port: 8080

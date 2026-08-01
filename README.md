@@ -320,7 +320,7 @@ bootstrapped cluster  (Talos lab or kubeadm lab — nodes NotReady, no CNI yet)
               │             true (default) → self-signed/   openssl, local CA
               │             false          → cert-manager/  Let's Encrypt DNS-01 Cloudflare
               │
-              └─ add-ons: storage → databases → secrets → observability → security
+              └─ add-ons: storage → databases → identity → secrets → observability → security
 ```
 
 That is exactly the order of `platform-up.sh` (`[1/4]` → `[4/4]`). Both TLS modes fill the
@@ -373,6 +373,7 @@ variable.
 | Longhorn | `longhorn/longhorn` | `1.12.0` | `longhorn/longhorn-up.sh` | `LONGHORN_VERSION` |
 | local-path-provisioner | image `rancher/…` | `v0.0.36` | `local-path-storage/local-path-storage.yaml` | — |
 | CloudNativePG | `cnpg/cloudnative-pg` | `0.29.0` (app 1.30.0) | `cloudnative-pg/cloudnative-pg-up.sh` | `CNPG_VERSION` |
+| Keycloak | `keycloak-k8s-resources` (operator **and** server) | `26.7.0` | `keycloak/keycloak-up.sh` | `KEYCLOAK_VERSION` |
 | Vault | `hashicorp/vault` | `0.34.0` | `vault-cluster/vault-up.sh` | `VAULT_CHART_VERSION` |
 | Vault Secrets Operator | `hashicorp/vault-secrets-operator` | `1.5.0` | `vault-secret-operator/` (docs) | — |
 | kube-prometheus-stack | `prometheus-community/…` | `88.0.1` (op. v0.93.0) | `observability/observability-up.sh` | `KPS_VERSION` |
@@ -421,6 +422,12 @@ variable.
 | Directory | Purpose | Command | Prerequisites |
 |---|---|---|---|
 | [`cloudnative-pg/`](cloudnative-pg/README.md) | PostgreSQL HA operator + 3-node cluster, automatic failover, **S3 backups + PITR** | `./install.sh <distro> cnpg` | SC `longhorn-r1` |
+
+### 🪪 Identity
+
+| Directory | Purpose | Command | Prerequisites |
+|---|---|---|---|
+| [`keycloak/`](keycloak/README.md) | Keycloak through its **operator**, declared `lab` realm, OIDC issuer at `keycloak.<LAB_DOMAIN>` | `./install.sh <distro> keycloak` | `cnpg`, SC `longhorn-r1` |
 
 ### 🔐 Secrets
 
