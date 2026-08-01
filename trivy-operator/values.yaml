@@ -1,59 +1,59 @@
-# values.yaml — Trivy Operator pour les labs Talos / kubeadm (chart aqua/trivy-operator).
+# values.yaml — Trivy Operator for the Talos / kubeadm labs (aqua/trivy-operator chart).
 #
-# Trivy Operator scanne EN CONTINU le cluster et produit des CRDs de rapport :
-#   - VulnerabilityReport   (CVE des images)
-#   - ConfigAuditReport     (mauvaises configs des workloads)
-#   - ExposedSecretReport   (secrets en clair dans les images)
-#   - RbacAssessmentReport  (RBAC trop permissif)
+# Trivy Operator scans the cluster CONTINUOUSLY and produces report CRDs:
+#   - VulnerabilityReport     (CVEs in the images)
+#   - ConfigAuditReport       (bad workload configuration)
+#   - ExposedSecretReport     (plaintext secrets inside the images)
+#   - RbacAssessmentReport    (over-permissive RBAC)
 #   - ClusterComplianceReport (CIS / NSA…)
 #
-# Ces rapports ne sont PAS des PolicyReport wgpolicyk8s : c'est le **plugin trivy** de
-# Policy Reporter (activé dans ../kyverno/policy-reporter-values.yaml) qui les remonte
-# dans la MÊME UI que Kyverno. Un seul tableau de bord sécurité pour tout le lab.
+# Those reports are NOT wgpolicyk8s PolicyReports: it is Policy Reporter's **trivy plugin**
+# (enabled in ../kyverno/policy-reporter-values.yaml) that surfaces them in the SAME UI as
+# Kyverno. One single security dashboard for the whole lab.
 #
-# Choix « lab » : on limite la concurrence des jobs de scan (chaque job = un pod qui pull
-# l'image + la base de CVE) pour ne pas saturer des nodes modestes, et on réduit le bruit
-# (CVE HIGH/CRITICAL corrigeables uniquement).
+# "Lab" choices: we limit the concurrency of the scan jobs (each job is a pod that pulls the
+# image + the CVE database) so as not to saturate modest nodes, and we cut the noise (only
+# fixable HIGH/CRITICAL CVEs).
 
 operator:
-  # Un seul job de scan à la fois (défaut 10) : aucune parallélisation, les scans sont
-  # sérialisés → charge CPU/RAM étalée, jamais de pic sur le lab.
+  # A single scan job at a time (default 10): no parallelism, the scans are serialised →
+  # CPU/RAM load spread out, never a spike on the lab.
   scanJobsConcurrentLimit: 1
-  # Cadence de re-scan : un rapport plus vieux que ce TTL est ré-évalué. À 30 min, chaque
-  # workload est re-scanné ~toutes les 30 min (par vagues, un scan à la fois), puis
-  # l'operator reste au repos entre deux — donc PAS de scan constant.
+  # Re-scan cadence: a report older than this TTL is re-evaluated. At 30 min, every workload
+  # is re-scanned roughly every 30 min (in waves, one scan at a time), then the operator sits
+  # idle in between — so NO constant scanning.
   scannerReportTTL: "30m"
 
-  # ⚠️ VALEURS PILOTÉES PAR LE PROFIL DE DISTRIBUTION.
-  # `trivy-operator-up.sh` surcharge ces deux clés avec `TRIVY_NODE_COLLECTOR`
-  # (lib/profiles/) : ce qui est écrit ici est le cas kubeadm.
+  # ⚠️ VALUES DRIVEN BY THE DISTRIBUTION PROFILE.
+  # `trivy-operator-up.sh` overrides these two keys with `TRIVY_NODE_COLLECTOR`
+  # (lib/profiles/): what is written here is the kubeadm case.
   #
-  # Les deux scanners « node » passent par un pod `node-collector` qui bind-monte
-  # /etc/systemd, /lib/systemd, /etc/kubernetes… :
-  #   - kubeadm/Debian 13 : ces chemins existent et sont lisibles => `true`, rien à
-  #     contourner. Le pod exige hostPID + des hostPath : il n'est PAS admissible sous
-  #     PodSecurity `baseline`/`restricted`, mais kubeadm n'applique aucun niveau au
-  #     niveau cluster par défaut, donc il passe tel quel. Si tu durcis l'admission :
+  # Both "node" scanners go through a `node-collector` pod that bind-mounts /etc/systemd,
+  # /lib/systemd, /etc/kubernetes…:
+  #   - kubeadm/Debian 13: those paths exist and are readable => `true`, nothing to work
+  #     around. The pod needs hostPID + hostPaths: it is NOT admissible under PodSecurity
+  #     `baseline`/`restricted`, but kubeadm enforces no level cluster-wide by default, so it
+  #     goes through as is. If you harden admission:
   #       kubectl label ns trivy-system pod-security.kubernetes.io/enforce=privileged
-  #   - Talos : pas de systemd, / et /etc en LECTURE SEULE => `CreateContainerError:
-  #     mkdir /etc/systemd: read-only file system` (et refus PodSecurity `baseline` avant
-  #     ça) => le profil met `false`. On perd les rapports « node » (infra assessment +
-  #     cluster compliance) ; les scans images/config/secrets/RBAC continuent normalement.
-  # /!\ Coût sur kubeadm : un pod de collecte par node à chaque cycle. Sur des VM très
-  # modestes, `TRIVY_NODE_COLLECTOR=false` reste un arbitrage légitime.
+  #   - Talos: no systemd, / and /etc READ-ONLY => `CreateContainerError: mkdir /etc/systemd:
+  #     read-only file system` (and a PodSecurity `baseline` refusal before that) => the
+  #     profile sets `false`. We lose the "node" reports (infra assessment + cluster
+  #     compliance); the image/config/secret/RBAC scans carry on as usual.
+  # /!\ Cost on kubeadm: one collector pod per node on every cycle. On very modest VMs,
+  # `TRIVY_NODE_COLLECTOR=false` remains a legitimate trade-off.
   infraAssessmentScannerEnabled: true
   clusterComplianceEnabled: true
 
 trivy:
-  # Mode Standalone : chaque job embarque son scan (simple). Pour un gros cluster, préférer
-  # `builtInTrivyServer: true` (un serveur trivy partagé garde la base de CVE en cache).
+  # Standalone mode: each job embeds its own scan (simple). For a large cluster, prefer
+  # `builtInTrivyServer: true` (a shared trivy server keeps the CVE database cached).
   mode: Standalone
-  # N'affiche que les CVE pour lesquelles un correctif existe (réduit le bruit en formation).
+  # Only show CVEs for which a fix exists (cuts the noise during training).
   ignoreUnfixed: true
-  # On se concentre sur ce qui compte pour une démo.
+  # We focus on what matters for a demo.
   severity: "HIGH,CRITICAL"
 
-# ServiceMonitor Prometheus : DÉSACTIVÉ tant que kube-prometheus-stack n'est pas installé
-# (sinon le CRD ServiceMonitor n'existe pas → échec du helm apply). À passer à true après.
+# Prometheus ServiceMonitor: DISABLED until kube-prometheus-stack is installed (otherwise the
+# ServiceMonitor CRD does not exist → the helm apply fails). Switch it to true afterwards.
 serviceMonitor:
   enabled: false

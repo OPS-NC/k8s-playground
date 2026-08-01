@@ -1,38 +1,38 @@
-# policy-reporter-values.yaml — Policy Reporter + UI pour visualiser les verdicts Kyverno.
+# policy-reporter-values.yaml — Policy Reporter + UI to visualise the Kyverno verdicts.
 #
-# Kyverno écrit ses résultats dans des (Cluster)PolicyReport. Policy Reporter watch ces
-# rapports et expose :
-#   - une API + des métriques Prometheus,
-#   - une UI web (dashboard : violations par policy / namespace / sévérité),
-#   - un « plugin kyverno » qui enrichit l'UI avec le détail des policies Kyverno.
+# Kyverno writes its results into (Cluster)PolicyReports. Policy Reporter watches those
+# reports and exposes:
+#   - an API + Prometheus metrics,
+#   - a web UI (dashboard: violations by policy / namespace / severity),
+#   - a "kyverno plugin" that enriches the UI with the detail of the Kyverno policies.
 #
-# Exposition : l'UI tourne en clair (port 8080), le HTTPS est assuré par Envoy Gateway
-# (cert wildcard *.lab.example.io). Voir httproute.yaml → kyverno.lab.example.io.
+# Exposure: the UI runs in plaintext (port 8080), HTTPS is handled by Envoy Gateway (the
+# *.lab.example.io wildcard cert). See httproute.yaml → kyverno.lab.example.io.
 
-# --- Cœur Policy Reporter -----------------------------------------------------
-# Rétention/scan par défaut : suffisant pour un lab mono-cluster.
+# --- Policy Reporter core -----------------------------------------------------
+# Default retention/scan: enough for a single-cluster lab.
 worker: 3
 
-# --- UI web -------------------------------------------------------------------
+# --- Web UI -------------------------------------------------------------------
 ui:
   enabled: true
   replicaCount: 1
-  # L'UI doit connaître ses back-ends (core + plugin kyverno) ; le chart câble ça
-  # automatiquement quand ui.enabled + plugin.kyverno.enabled sont vrais.
+  # The UI needs to know its back ends (core + kyverno plugin); the chart wires that up
+  # automatically when ui.enabled + plugin.kyverno.enabled are true.
 
-# --- Plugins (détail des sources dans l'UI) -----------------------------------
+# --- Plugins (source detail in the UI) ----------------------------------------
 plugin:
-  # Détail des policies Kyverno (validate/mutate/generate).
+  # Detail of the Kyverno policies (validate/mutate/generate).
   kyverno:
     enabled: true
     replicaCount: 1
-  # Remonte les rapports de Trivy Operator (CVE, config audit, secrets, RBAC) dans
-  # cette même UI. Sans effet tant que ../trivy-operator/ n'est pas installé, mais
-  # inoffensif à laisser actif. Voir trivy-operator/.
+  # Surfaces the Trivy Operator reports (CVEs, config audit, secrets, RBAC) in this same UI.
+  # No effect until ../trivy-operator/ is installed, but harmless to leave enabled. See
+  # trivy-operator/.
   trivy:
     enabled: true
     replicaCount: 1
 
-# --- Métriques (optionnel : prêt pour un futur Prometheus/kube-prometheus-stack)
+# --- Metrics (optional: ready for a future Prometheus/kube-prometheus-stack) ---
 metrics:
   enabled: true

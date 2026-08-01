@@ -1,31 +1,31 @@
-# values.yaml — Argo CD pour les labs Talos / kubeadm (chart argo/argo-cd).
+# values.yaml — Argo CD for the Talos / kubeadm labs (argo/argo-cd chart).
 #
-# Principe d'expo : le TLS est terminé par **Envoy Gateway** (cert wildcard
-# `*.lab.example.io` fourni par cert-manager). argocd-server tourne donc EN CLAIR
-# (`server.insecure=true`) : Envoy fait le HTTPS devant, HTTP derrière. Sans ça,
-# argocd-server ferait sa propre redirection 307 http->https => boucle infinie
-# derrière un proxy qui termine déjà le TLS.
+# Exposure principle: TLS is terminated by **Envoy Gateway** (the `*.lab.example.io` wildcard
+# cert supplied by cert-manager). argocd-server therefore runs IN PLAINTEXT
+# (`server.insecure=true`): Envoy does the HTTPS in front, HTTP behind. Without it,
+# argocd-server would issue its own 307 http->https redirect => an infinite loop behind a
+# proxy that already terminates TLS.
 
 global:
-  # Domaine externe : sert d'URL de base ET d'hôte pour la route/UI.
+  # External domain: serves as the base URL AND as the host of the route/UI.
   domain: argo.lab.example.io
 
 configs:
   params:
-    # HTTP interne — le HTTPS est assuré par le Gateway (voir httproute.yaml).
+    # Internal HTTP — HTTPS is handled by the Gateway (see httproute.yaml).
     server.insecure: true
   cm:
-    # URL publique (liens générés, callbacks). Déduite de global.domain, explicitée ici.
+    # Public URL (generated links, callbacks). Derived from global.domain, spelled out here.
     url: https://argo.lab.example.io
 
-# Lab mono-utilisateur : pas de SSO → Dex coupé (un pod de moins sur des nodes à 2 Go).
-# L'auth se fait avec l'admin local (mot de passe initial dans un Secret, cf. README).
+# Single-user lab: no SSO → Dex turned off (one pod less on 2 GB nodes).
+# Authentication uses the local admin (initial password in a Secret, see the README).
 dex:
   enabled: false
 
-# Coupé pour alléger ; réactiver si tu veux des notifications (Slack, etc.).
+# Turned off to keep things light; re-enable it if you want notifications (Slack, etc.).
 notifications:
   enabled: false
 
-# ApplicationSet laissé actif (générateurs GitOps) — contrôleur léger.
-# redis en mono-instance (défaut du chart, non-HA) : suffisant pour le lab.
+# ApplicationSet left enabled (GitOps generators) — a lightweight controller.
+# redis as a single instance (the chart default, non-HA): enough for the lab.
