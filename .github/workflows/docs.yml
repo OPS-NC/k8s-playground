@@ -1,26 +1,27 @@
-# Publie la documentation de ce dépôt sur GitHub Pages.
+# Publishes this repository's documentation to GitHub Pages.
 #
-# La page est construite par docs/build.py (markdown-it-py + Pygments, dépendances
-# déclarées en PEP 723 → installées par uv) à partir des README.md (EN) et LISEZ-MOI.md
-# (FR) du dépôt. Une SEULE page HTML autonome, bilingue EN/FR (anglais par défaut) avec
-# thème sombre/clair : aucun CDN, aucun asset externe.
+# The page is built by docs/build.py (markdown-it-py + Pygments, dependencies declared through
+# PEP 723 → installed by uv) from the repository's README.md (EN) and LISEZ-MOI.md (FR) files.
+# A SINGLE self-contained HTML page, bilingual EN/FR (English by default) with a light/dark
+# theme: no CDN, no external asset.
 #
-# L'artefact n'est PAS versionné : il est régénéré à chaque push sur main, ce qui évite
-# un diff de plusieurs centaines de kilo-octets à chaque changement de doc.
+# The artefact is NOT versioned: it is regenerated on every push to main, which avoids a
+# several-hundred-kilobyte diff on every documentation change.
 #
 # ---------------------------------------------------------------------------
-# PUBLICATION : ACTIVE.
-#   Dépôt public, Pages en source « GitHub Actions », variable de dépôt
-#   PUBLISH_PAGES=true. URL : https://ops-nc.github.io/k8s-playground/
+# PUBLISHING: ENABLED.
+#   Public repository, Pages source set to "GitHub Actions", repository variable
+#   PUBLISH_PAGES=true. URL: https://ops-nc.github.io/k8s-playground/
 #
-# Le job `deploy` reste conditionné à PUBLISH_PAGES. C'est délibéré : Pages est refusé
-# sur un dépôt privé hors plan payant, et sans cette garde le job échouerait à chaque
-# push si le dépôt repassait en privé — transformant l'onglet Actions en mur de croix
-# rouges, jusqu'à ce que plus personne ne regarde la CI. Pour suspendre la publication
-# sans toucher au workflow :  gh variable set PUBLISH_PAGES --body false
+# The `deploy` job stays gated on PUBLISH_PAGES. That is deliberate: Pages is refused on a
+# private repository outside a paid plan, and without that guard the job would fail on every
+# push if the repository went private again — turning the Actions tab into a wall of red
+# crosses, until nobody looks at CI any more. To suspend publishing without touching the
+# workflow:  gh variable set PUBLISH_PAGES --body false
 #
-# Le job `build`, lui, tourne TOUJOURS : il construit la doc, exige que chaque lien et
-# chaque ancre résolve (--strict), et refuse de publier s'il détecte un motif de secret.
+# The `build` job, on the other hand, ALWAYS runs: it builds the documentation, requires every
+# link and every anchor to resolve (--strict), and refuses to publish if it detects a secret
+# pattern.
 # ---------------------------------------------------------------------------
 name: docs
 
@@ -33,13 +34,13 @@ on:
       - .github/workflows/docs.yml
   workflow_dispatch: {}
 
-# Droits minimaux : lecture du code, écriture Pages, et l'OIDC exigé par deploy-pages.
+# Minimal permissions: read the code, write Pages, and the OIDC token deploy-pages requires.
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Un seul déploiement à la fois, sans annuler celui en cours (Pages n'aime pas).
+# One deployment at a time, without cancelling the one in flight (Pages does not like that).
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -50,36 +51,36 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # astral-sh/setup-uv ne publie plus de tag majeur flottant au-delà de v7 :
-      # on épingle la version exacte (un `@v9` n'existe pas et fait échouer le job).
-      - name: Installer uv
+      # astral-sh/setup-uv no longer publishes a floating major tag beyond v7: we pin the
+      # exact version (a `@v9` does not exist and makes the job fail).
+      - name: Install uv
         uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
-          # Les dépendances sont déclarées en PEP 723 DANS build.py : sans ce glob, uv
-          # cherche un requirements.txt/pyproject.toml, n'en trouve aucun, et annote le
-          # job d'un « the cache will never get invalidated ». Le cache suit donc le
-          # seul fichier qui porte les versions.
+          # The dependencies are declared through PEP 723 INSIDE build.py: without this glob,
+          # uv looks for a requirements.txt/pyproject.toml, finds none, and annotates the job
+          # with "the cache will never get invalidated". So the cache follows the only file
+          # that carries the versions.
           cache-dependency-glob: docs/build.py
 
-      # build.py interroge git (ls-files, check-ignore, log -1) : le checkout suffit.
+      # build.py queries git (ls-files, check-ignore, log -1): the checkout is enough.
       #
-      # `--strict` : un lien ou une ancre morte fait ÉCHOUER le job. Les README de ce
-      # dépôt se citent beaucoup les uns les autres (chaque composant renvoie au socle et
-      # à ses voisins) : sans cette garde, une doc trouée se publierait en silence.
-      # Localement : `make docs-check`.
-      - name: Générer la page (liens et ancres vérifiés)
+      # `--strict`: a dead link or anchor FAILS the job. This repository's READMEs cite each
+      # other a lot (every component points back to the base layer and to its neighbours):
+      # without that guard, holed documentation would publish silently.
+      # Locally: `make docs-check`.
+      - name: Build the page (links and anchors verified)
         run: uv run docs/build.py --strict --out _site/index.html
 
-      # Garde-fou : aucun secret ne doit se retrouver dans la page publiée. Le dépôt
-      # est public et la doc cite beaucoup de commandes — une valeur réelle collée par
-      # inadvertance dans un README serait publiée telle quelle.
-      - name: Vérifier l'absence de secrets
+      # Guard rail: no secret must end up in the published page. The repository is public and
+      # the documentation quotes a lot of commands — a real value pasted into a README by
+      # accident would be published as is.
+      - name: Check for the absence of secrets
         run: |
           if grep -qE 'hvs\.[A-Za-z0-9]{15,}|cfat_[A-Za-z0-9]{15,}|-----BEGIN [A-Z ]*PRIVATE KEY' _site/index.html; then
-            echo "::error::Un motif de secret a été détecté dans la page générée." && exit 1
+            echo "::error::A secret pattern was detected in the generated page." && exit 1
           fi
-          echo "✅ aucun motif de secret détecté"
+          echo "✅ no secret pattern detected"
 
       - uses: actions/upload-pages-artifact@v5
         with:
@@ -87,13 +88,13 @@ jobs:
 
   deploy:
     needs: build
-    # Sans cette garde, le job échoue à chaque push tant que Pages n'est pas activable
-    # (dépôt privé sur un plan Free). Cf. l'en-tête du fichier pour l'activer.
+    # Without this guard the job fails on every push as long as Pages cannot be enabled
+    # (a private repository on a Free plan). See the file header to enable it.
     if: vars.PUBLISH_PAGES == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deploiement.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - id: deploiement
+      - id: deployment
         uses: actions/deploy-pages@v5
