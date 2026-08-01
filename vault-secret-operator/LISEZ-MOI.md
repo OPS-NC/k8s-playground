@@ -246,7 +246,7 @@ kubectl apply -f vault-secret-operator/k8s/nginx-test-vault/nginx-test-vault.yam
 
 # La rotation, en direct : on change la valeur dans Vault…
 vault kv put lab-kv/nginx-test-vault/config \
-  APP_GREETING="Bonjour depuis Vault" APP_COLOR=green APP_SECRET_TOKEN=v2
+  APP_GREETING="Hello from Vault" APP_COLOR=green APP_SECRET_TOKEN=v2
 # …VSO resync (refreshAfter 30s) -> Secret mis à jour -> rolloutRestartTargets relance le Deployment
 kubectl -n nginx-test-vault rollout status deploy/nginx-test-vault
 ```
