@@ -90,6 +90,30 @@ config:
         # `--oidc-username-claim` stays `email`: that is the field which becomes the Kubernetes
         # identity, see the README.
         userNameKey: preferred_username
+        # ⚠️ WITHOUT THIS, DEX CRASHLOOPS ON EVERY LAB THAT IS NOT ON LET'S ENCRYPT PROD.
+        #    At startup Dex fetches `<issuer>/.well-known/openid-configuration` from Keycloak
+        #    over HTTPS, and a failure there is FATAL — not a retry:
+        #        failed to initialize server: server: Failed to open connector keycloak:
+        #        [...] tls: failed to verify certificate: x509: certificate signed by
+        #        unknown authority
+        #    Keycloak is served by Envoy with the lab's `*.<LAB_DOMAIN>` wildcard, which is
+        #    signed by a local CA (`SELF_SIGNED=true`, the repo default) or by the Let's
+        #    Encrypt STAGING chain (`LAB_ACME_ISSUER=staging`, the documented default). Neither
+        #    is in the container's trust store, so the discovery cannot be verified.
+        #    The rest of the component was only ever tested against LE production, where the
+        #    system store happens to be enough — which is why the whole README talks at length
+        #    about who must trust DEX, and never about Dex trusting KEYCLOAK.
+        #
+        #    `rootCAs` REPLACES the system pool rather than adding to it, and that is fine in
+        #    all three modes: the `tls.crt` of the wildcard Secret always carries its own
+        #    anchor — leaf + local CA in self-signed mode (see ../self-signed/selfsigned-up.sh,
+        #    which concatenates them on purpose), leaf + intermediate (+ root) with ACME. The
+        #    file is the copy of that Secret which `dex-up.sh` places in this namespace.
+        #
+        #    Do NOT swap this for `insecureSkipVerify: true`: it would work, and it teaches the
+        #    wrong reflex on the one component whose whole job is to validate identities.
+        rootCAs:
+          - /etc/dex-ca/ca.crt
 
   # --- Downstream client: kubectl --------------------------------------------
   staticClients:
@@ -102,6 +126,20 @@ config:
       redirectURIs:
         - http://localhost:8000
         - http://127.0.0.1:8000
+
+# The lab CA that the `keycloak` connector above validates the discovery against. The Secret is
+# a copy of the wildcard `tls.crt`, placed in this namespace by `dex-up.sh`: a Secret does not
+# cross namespaces, and the original lives in `envoy-gateway-system`.
+# Mounted OUTSIDE `/etc/dex`: the chart already mounts the rendered configuration there, and a
+# second volume on the same path would shadow it.
+volumes:
+  - name: lab-ca
+    secret:
+      secretName: dex-lab-ca
+volumeMounts:
+  - name: lab-ca
+    mountPath: /etc/dex-ca
+    readOnly: true
 
 # Resources: Dex is a tiny Go binary, but without a limit it would end up being the first thing
 # evicted on 4 GB workers.

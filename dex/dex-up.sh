@@ -102,6 +102,28 @@ render "${HERE}/01-keycloak-client.yaml" | kubectl apply -f -
 kubectl -n "$KC_NS" wait --for=condition=Ready keycloakoidcclient/dex --timeout=180s || true
 
 # ============================================================================
+# The lab CA, so that Dex can VALIDATE Keycloak. Dex fetches the realm's
+# `.well-known/openid-configuration` over HTTPS at startup, and a verification failure there is
+# FATAL: the pod crashloops on `x509: certificate signed by unknown authority`. The wildcard
+# that Envoy serves is signed by a local CA (`SELF_SIGNED=true`) or by the ACME STAGING chain —
+# neither is in the container's trust store.
+#
+# Same cross-namespace pattern as the client secret above: a Secret does not travel, so we copy
+# it. `tls.crt` and not a `ca.crt` key: the Secret produced by cert-manager has no such key, and
+# the self-signed one deliberately concatenates leaf + CA into `tls.crt`. In both cases the
+# bundle carries its own trust anchor, which is exactly what `rootCAs` needs — no branching on
+# the TLS mode, as everywhere else in this repository.
+CA_SECRET="${CA_SECRET:-dex-lab-ca}"
+chain="$(kubectl -n envoy-gateway-system get secret "$WILDCARD_TLS" \
+           -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d || true)"
+[ -n "$chain" ] || fail "wildcard TLS Secret 'envoy-gateway-system/${WILDCARD_TLS}' not found.
+        Dex cannot validate Keycloak without the lab CA. Lay the platform down first:
+          ./platform-up.sh"
+printf '%s' "$chain" | kubectl -n "$NS" create secret generic "$CA_SECRET" \
+  --from-file=ca.crt=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -
+echo "    lab CA copied from ${WILDCARD_TLS} -> ${NS}/${CA_SECRET} (key ca.crt)"
+
+# ============================================================================
 log "[3/5] Dex chart ${DEX_VERSION} (connector to keycloak.${LAB_DOMAIN})"
 helm repo add dex https://charts.dexidp.io >/dev/null 2>&1 || true
 helm repo update dex >/dev/null
