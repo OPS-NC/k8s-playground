@@ -1,0 +1,30 @@
+# Namespace of MetalLB.
+#
+# PodSecurity `privileged`: the `speaker` DaemonSet runs on `hostNetwork` — it has to answer ARP
+# requests arriving on the node's REAL network card, which a pod inside the pod network could
+# never do — and it adds the `NET_RAW` capability to craft the gratuitous ARP / NDP replies.
+#
+# `baseline`, the cluster-wide default on Talos, refuses BOTH: host namespaces are forbidden,
+# and `NET_RAW` is not part of the capability set baseline allows. On kubeadm no level is
+# enforced cluster-wide, so these labels unlock nothing today; they are here because they
+# DOCUMENT what the speaker needs, and because they keep it working the day admission gets
+# hardened (Kyverno, a default `AdmissionConfiguration`, a managed cluster).
+#
+# Their absence fails SILENTLY, and the symptom actively misleads: the `controller` Deployment
+# is NOT privileged (runAsNonRoot, no host namespace) so it starts, allocates an address from
+# the pool and writes it into the Service — `kubectl get svc` shows a perfectly normal
+# `EXTERNAL-IP 192.168.56.200`. But the speaker DaemonSet schedules ZERO pod, so nobody answers
+# ARP for that address: it is assigned and unreachable. `kubectl -n metallb-system get pods`
+# shows the controller alone, and the cause only appears in the DaemonSet events:
+#   kubectl -n metallb-system describe ds/metallb-speaker
+#
+# `helm --create-namespace` sets no PSS label at all: so we create the namespace ourselves,
+# BEFORE the chart. Same recipe as ../calico/namespace.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: metallb-system
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

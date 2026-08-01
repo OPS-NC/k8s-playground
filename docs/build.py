@@ -153,7 +153,7 @@ LABELS: dict[str, dict[str, str]] = {
 GROUPS: list[tuple[dict[str, str], str, list[str]]] = [
     ({"en": "Start here",    "fr": "Démarrer"},          "☸️", ["README.md"]),
     ({"en": "Networking",    "fr": "Réseau"},            "🌐",
-     ["cilium", "calico", "envoy-gateway", "self-signed", "cert-manager"]),
+     ["cilium", "calico", "metallb", "envoy-gateway", "self-signed", "cert-manager"]),
     ({"en": "Storage",       "fr": "Stockage"},          "💾",
      ["longhorn", "local-path-storage", "minio-s3"]),
     ({"en": "Databases",     "fr": "Bases de données"},  "🗄️", ["cloudnative-pg"]),
@@ -171,6 +171,7 @@ EMOJIS: dict[str, str] = {
     "README.md":                             "☸️",
     "cilium/README.md":                      "🐝",
     "calico/README.md":                      "🐆",
+    "metallb/README.md":                     "📢",
     "envoy-gateway/README.md":               "🚪",
     "self-signed/README.md":                 "🔏",
     "cert-manager/README.md":                "📜",

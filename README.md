@@ -315,6 +315,8 @@ bootstrapped cluster  (Talos lab or kubeadm lab — nodes NotReady, no CNI yet)
    │
    ├─ 1. CNI              cilium/ (default, + L2 pool → LoadBalancer IP .200)
    │                      or calico/ (CNI only) or flannel (CNI only) or nothing
+   │     + L2 announcer   metallb/ — ONLY when the CNI is not cilium, on the SAME range
+   │                      (skipped with METALLB=false: no LoadBalancer IP at all)
    ├─ 2. envoy-gateway/   Envoy controller + main-gateway (listeners :80 and :443)
    ├─ 3. metric-server    metrics.k8s.io API  (kubectl top, HPA)
    └─ 4. wildcard TLS     *.<LAB_DOMAIN> — two modes, per SELF_SIGNED
@@ -368,6 +370,7 @@ variable.
 |---|---|---|---|---|
 | Cilium | `cilium/cilium` | `1.20.0` | `cilium/cilium-up.sh` | `CILIUM_VERSION` |
 | Calico | `projectcalico/tigera-operator` | `v3.32.1` | `calico/calico-up.sh` | `CALICO_VERSION` |
+| MetalLB | `metallb/metallb` | `0.16.1` | `metallb/metallb-up.sh` | `METALLB_VERSION` |
 | Envoy Gateway | `oci://docker.io/envoyproxy/gateway-helm` | `1.8.3` | `platform-up.sh` | `ENVOY_GW_VERSION` |
 | cert-manager | `jetstack/cert-manager` | `v1.21.1` | `platform-up.sh` | `CERT_MANAGER_VERSION` |
 | metrics-server | image `registry.k8s.io/…` | `v0.9.0` | `metric-server.yaml` | — |
@@ -407,6 +410,7 @@ variable.
 |---|---|---|
 | [`cilium/`](cilium/README.md) | **default CNI** + LoadBalancer IP pool + L2 announcement (ARP) | `./install.sh <distro> cilium` |
 | [`calico/`](calico/README.md) | **alternative CNI** (Tigera operator) — CNI **only**, no L2 announcement | `./install.sh <distro> calico` |
+| [`metallb/`](metallb/README.md) | L2 announcer (ARP) — the LoadBalancer IPs **when the CNI is not Cilium** | via `platform` when `CNI != cilium` |
 | [`envoy-gateway/`](envoy-gateway/README.md) | Envoy controller + `main-gateway` (`:80`/`:443`) + demo apps | via `platform` |
 | [`self-signed/`](self-signed/README.md) | **default TLS mode** — wildcard signed by a local CA | via `platform` |
 | [`cert-manager/`](cert-manager/README.md) | automatic wildcard TLS (ACME DNS-01 Cloudflare) | via `platform` when `SELF_SIGNED=false` |
@@ -503,10 +507,15 @@ as-is.
   true` and `local-path-storage.yaml` sets the `is-default-class: "true"` annotation. With
   both add-ons installed ⇒ a PVC without an explicit `storageClassName` lands on the most
   recently created SC, non-deterministically. **Always name your SC.**
-- **`CNI=cilium` is the only "everything on" choice.** This layer needs a `LoadBalancer`
-  Service that really gets an IP, and only Cilium's L2 announcement (ARP) does that here.
-  With `calico`, `flannel` or `none`, the Gateway stays at `EXTERNAL-IP <pending>` and **no UI
-  is reachable**.
+- **This layer needs a `LoadBalancer` Service that really gets an IP**, and Cilium is the only
+  CNI here that provides one on its own (L2/ARP announcement). With `calico`, `flannel` or
+  `none`, `platform-up.sh` installs [`metallb/`](metallb/README.md) right after the CNI, on the
+  same range — so every CNI now ends up with a reachable `.200`. Two things still leave the
+  Gateway at `EXTERNAL-IP <pending>`: `METALLB=false` in `lab.env`, and applying
+  `envoy-gateway/Envoy-Proxy.yml` **by hand** with its Cilium `loadBalancerClass` left in.
+- **Never MetalLB *and* Cilium.** Two announcers on one range means two nodes answering ARP for
+  `.200`: the entry point then works "one time in two", with nothing in any log to say so.
+  `metallb-up.sh` refuses to install on a Cilium cluster, and `platform` never picks it there.
 - **Switching CNI on a live cluster is not supported**: flatten the cluster from the lab
   (`./kubeadm/cluster-reset.sh`, or `vagrant destroy`), then re-bootstrap.
 - **The repo's own Kyverno policies are violated by the repo** (`require-requests-limits`

@@ -83,7 +83,9 @@ domain** (`talos.lab.example.io` / `kubeadm.lab.example.io`) and **where the lab
 
 > ℹ️ One detail depends on the CNI (not on the distribution): `loadBalancerClass:
 > io.cilium/l2-announcer` in `Envoy-Proxy.yml`. `platform-up.sh` STRIPS it when
-> `CNI != cilium`, otherwise no other announcer (MetalLB) could serve that Service.
+> `CNI != cilium`, otherwise the announcer that serves this Service in that case —
+> [`../metallb/`](../metallb/README.md) — would ignore it and the IP would stay `<pending>`
+> with a perfectly valid pool next to it.
 
 ## 🎓 Guided walkthrough (step by step)
 

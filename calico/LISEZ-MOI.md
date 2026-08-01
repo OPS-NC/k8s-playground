@@ -8,7 +8,8 @@
 > (le défaut). Calico est installé par l'**opérateur Tigera** et couvre le réseau pod,
 > le routage et les NetworkPolicy. Il **ne remplace pas** le rôle de « cloud provider »
 > que Cilium assure en plus : aucune IP de Service `LoadBalancer`, donc aucun VIP
-> `192.168.56.200` — il faut MetalLB à côté. Lis la section 🎯 avant de choisir.
+> `192.168.56.200` par lui-même — c'est pour ça que [`../metallb/`](../metallb/LISEZ-MOI.md)
+> est installé à côté, automatiquement. Lis la section 🎯 avant de choisir.
 
 ## 🎯 À quoi ça sert
 
@@ -41,8 +42,11 @@ Conséquence concrète, pas théorique : avec `CNI=calico` **et rien d'autre**,
 | Les `HTTPRoute` ne sont joignables par personne | Argo CD, Grafana, Vault, Longhorn, MinIO… **inaccessibles** |
 | Le certificat wildcard s'émet quand même (DNS-01) | mais ne sert à rien : plus de point d'entrée |
 
-Autrement dit : **toute la couche `k8s-playground/` du lab dépend de ce VIP**. Voir
-[🌐 Rendre les UI joignables](#-rendre-les-ui-du-lab-joignables-metallb) pour la marche à suivre.
+Autrement dit : **toute la couche `k8s-playground/` du lab dépend de ce VIP**. Aussi
+`../platform-up.sh` ne te laisse plus là : dès que `CNI != cilium`, il installe
+[**MetalLB**](../metallb/LISEZ-MOI.md) juste après ce script, sur exactement la même plage et la
+même interface que Cilium aurait utilisées. Voir
+[🌐 Rendre les UI joignables](#-rendre-les-ui-du-lab-joignables-metallb).
 
 ### Cilium ou Calico ?
 
@@ -51,10 +55,10 @@ Autrement dit : **toute la couche `k8s-playground/` du lab dépend de ce VIP**. 
 | CNI (réseau pod, routage) | ✅ VXLAN, interface host-only épinglée | ✅ VXLAN, autodétection sur `192.168.56.0/24` |
 | NetworkPolicy Kubernetes | ✅ | ✅ |
 | Policies étendues | ✅ `CiliumNetworkPolicy` (L7, DNS, identités) | ✅ `projectcalico.org/v3` (tiers, ordre, `HostEndpoint`) |
-| **Annonce L2 des IP LoadBalancer** | ✅ intégrée (ARP, pool `.200-.230`) | ❌ **MetalLB obligatoire** (Calico = BGP uniquement) |
+| **Annonce L2 des IP LoadBalancer** | ✅ intégrée (ARP, pool `.200-.230`) | ❌ aucune en propre (BGP uniquement) → [`metallb/`](../metallb/LISEZ-MOI.md), installé automatiquement |
 | Remplacement de kube-proxy | ✅ `kubeProxyReplacement=true` (documenté) | ⚠️ seulement en dataplane **eBPF**, écarté ici (cf. ⚠️ Pièges) |
 | Observabilité des flux | ✅ Hubble (relay + UI) installés | ⚠️ Whisker + Goldmane livrés par le chart, **désactivés** par défaut ici |
-| Prêt à l'emploi dans CE lab | ✅ `platform-up.sh` enchaîne tout | ⚠️ deux étapes manuelles restent à ta charge |
+| Prêt à l'emploi dans CE lab | ✅ `platform-up.sh` enchaîne tout | ✅ `platform-up.sh` enchaîne tout aussi, MetalLB compris |
 
 > 💡 **Recommandation : garde Cilium comme défaut du lab.** Calico est là pour *comparer*
 > les CNI et pour travailler les NetworkPolicy, pas pour allumer un lab complet sans
@@ -187,9 +191,9 @@ kubectl get ippools.projectcalico.org         # via le calico-apiserver, sans ca
 kubectl -n envoy-gateway-system get svc       # EXTERNAL-IP <pending> : ATTENDU avec Calico
 ```
 
-> ⚠️ Calico n'annonce aucune IP de Service `LoadBalancer` (BGP uniquement). Pour joindre les
-> UI du lab : installer MetalLB **et** retirer `loadBalancerClass: io.cilium/l2-announcer` de
-> `envoy-gateway/Envoy-Proxy.yml` (cf. la section « Pièges » de ce document).
+> ⚠️ Calico n'annonce aucune IP de Service `LoadBalancer` (BGP uniquement). Un `<pending>` à
+> cet endroit précis est donc normal : c'est [`../metallb/`](../metallb/LISEZ-MOI.md), installé
+> par `platform-up.sh` juste après ce script, qui remplit l'adresse — cf. la section 🌐.
 
 ## 🔧 Ce que fait le script
 
@@ -280,45 +284,48 @@ kubectl delete pod t1 t2
 
 ## 🌐 Rendre les UI du lab joignables (MetalLB)
 
-Calico ne fournit pas d'IP de `LoadBalancer` : **c'est à toi de poser un annonceur L2.**
-Ce dossier ne l'installe pas. Deux choses à faire, dans cet ordre.
+Calico ne fournit pas d'IP de `LoadBalancer` — mais **tu n'as plus rien à faire pour autant**.
+Les deux étapes autrefois manuelles sont désormais prises en charge par `../platform-up.sh` à
+l'étape **[1/4]**, juste après ce script, dès que `CNI != cilium` :
 
-**1. Installer MetalLB en mode L2** sur la même plage que celle qu'utilise Cilium
-(`192.168.56.200` → `192.168.56.230`, la **première IP** revenant à `main-gateway`) :
+**1. MetalLB est installé en mode L2**, par [`../metallb/metallb-up.sh`](../metallb/LISEZ-MOI.md),
+sur la même plage que celle qu'utilise Cilium (`192.168.56.200` → `192.168.56.230`, la
+**première IP** revenant à `main-gateway`), sur la même interface host-only et depuis les
+workers uniquement. Il lit les mêmes clés `LB_POOL_START` / `LB_POOL_END` / `HOSTONLY_IF` de
+`lab.env` : l'enregistrement DNS wildcard continue donc de pointer vers la même adresse, quel
+que soit le CNI retenu.
 
-```bash
-helm repo add metallb https://metallb.github.io/metallb
-helm upgrade --install metallb metallb/metallb --version 0.16.1 \
-  -n metallb-system --create-namespace
-```
-
-Puis un `IPAddressPool` + une `L2Advertisement` (`metallb.io/v1beta1`) couvrant la plage.
-
-> ℹ️ **PodSecurity** : le `speaker` MetalLB tourne en `hostNetwork` avec `NET_RAW`. kubeadm
-> n'applique rien au niveau cluster, il démarre donc tel quel — mais si tu durcis l'admission,
-> étiquette le namespace `metallb-system` en `pod-security.kubernetes.io/enforce: privileged`,
-> même recette que [`../observability/namespace.yaml`](../observability/namespace.yaml).
-
-**2. Retirer la `loadBalancerClass` spécifique à Cilium.**
-[`../envoy-gateway/Envoy-Proxy.yml`](../envoy-gateway/Envoy-Proxy.yml) épingle aujourd'hui,
-**ligne 13** :
+**2. La `loadBalancerClass` spécifique à Cilium est retirée.**
+[`../envoy-gateway/Envoy-Proxy.yml`](../envoy-gateway/Envoy-Proxy.yml) épingle, **ligne 13** :
 
 ```yaml
         loadBalancerClass: io.cilium/l2-announcer
 ```
 
-> ⚠️ **Tant que cette ligne est là, MetalLB ne servira pas le Service.** Une
-> `loadBalancerClass` dit à Kubernetes « seul ce contrôleur a le droit de traiter ce
-> Service » : MetalLB l'ignorera et l'IP restera `<pending>` même avec un pool valide.
-> Il faut **supprimer** la ligne (n'importe quel annonceur prend alors la main) ou la
-> remplacer par la classe de l'annonceur retenu.
+`platform-up.sh` supprime cette ligne avant d'appliquer le manifeste quand `CNI != cilium`.
 
-Une fois les deux points faits :
+> ⚠️ **Ça compte, et c'est la fausse piste n°1 ici.** Une `loadBalancerClass` dit à Kubernetes
+> « seul ce contrôleur a le droit de traiter ce Service » : laissée en place, MetalLB ignore le
+> Service et l'IP reste `<pending>` **même avec un pool parfaitement valide**. Si tu appliques
+> `Envoy-Proxy.yml` à la main plutôt que via `platform-up.sh`, retire la ligne toi-même.
+
+Résultat, sans étape supplémentaire :
 
 ```bash
+./platform-up.sh <distro>                                 # CNI=calico → Calico + MetalLB
 kubectl -n envoy-gateway-system get svc                   # EXTERNAL-IP = 192.168.56.200
-ping -c1 192.168.56.200                                   # depuis l'hôte : l'ARP doit répondre
+kubectl get servicel2status -A -o wide                    # quel worker l'annonce
 ```
+
+L'installer seul — pour une réparation, ou si tu t'étais exclu avec `METALLB=false` :
+
+```bash
+./install.sh <distro> metallb
+```
+
+> ⚠️ **Jamais sur un cluster Cilium.** Deux annonceurs sur une plage, ce sont deux nodes qui
+> répondent à l'ARP pour `.200`. `metallb-up.sh` refuse net — cf.
+> [`../metallb/LISEZ-MOI.md`](../metallb/LISEZ-MOI.md).
 
 ## ⚠️ Pièges
 
@@ -352,7 +359,9 @@ ping -c1 192.168.56.200                                   # depuis l'hôte : l'A
   garde-fou du script est là pour t'empêcher de le faire par erreur, pas pour rendre
   l'opération possible.
 - **Pas de `loadBalancerClass` Cilium** : cf. la section 🌐 ci-dessus. C'est la cause n°1
-  d'un `EXTERNAL-IP <pending>` qui persiste *après* avoir installé MetalLB.
+  d'un `EXTERNAL-IP <pending>` qui persiste *après* l'installation de MetalLB — et ça ne mord
+  que si `Envoy-Proxy.yml` a été appliqué à la main, puisque `platform-up.sh` retire la ligne
+  pour toi.
 - **Dataplane eBPF : tentant, écarté.** Il exigerait `bpfNetworkBootstrap: Enabled`,
   `kubeProxyManagement: Enabled` et une `FelixConfiguration` (`cgroupV2Path`), et il prendrait
   la main sur kube-proxy — exactement ce que `KUBE_PROXY_REPLACEMENT=false` dit qu'on ne fait
@@ -377,7 +386,7 @@ ping -c1 192.168.56.200                                   # depuis l'hôte : l'A
 | `calico-node` en `Init:` / `CreateContainerConfigError` | un hostPath en lecture seule (typiquement le `flexvol-driver` si `flexVolumePath` a été retiré) | vérifie `kubectl get installation default -o yaml` ⇒ `flexVolumePath: None` |
 | Nodes `Ready` mais DNS KO depuis un pod | adresse NAT élue pour les tunnels | relis la 1re puce des ⚠️ Pièges, puis la commande d'annotations de ✅ Vérifier |
 | `kubectl get tigerastatus` → `Degraded` | l'opérateur explique pourquoi dans le message | `kubectl get tigerastatus calico -o yaml` |
-| Gateway en `EXTERNAL-IP <pending>` | **normal sans MetalLB** | section 🌐, les **deux** étapes |
+| Gateway en `EXTERNAL-IP <pending>` | **normal** juste après ce script ; un problème seulement une fois MetalLB passé | section 🌐, puis [`../metallb/LISEZ-MOI.md`](../metallb/LISEZ-MOI.md) |
 | Pods `Pending` avec `no IP addresses available in range` | bloc `/26` épuisé sur ce node ou `IPPool` trop petit | `kubectl get ipamblocks.crd.projectcalico.org` |
 
 ## 🧹 Désinstaller
@@ -400,5 +409,6 @@ helm uninstall calico -n tigera-operator
 - [Calico — Configure BGP peering / advertise service IPs](https://docs.tigera.io/calico/latest/networking/configuring/bgp)
 - [Calico — Get started with NetworkPolicy](https://docs.tigera.io/calico/latest/network-policy/get-started/calico-policy/calico-network-policy)
 - [MetalLB — Layer 2 configuration](https://metallb.io/configuration/#layer-2-configuration)
+- [`../metallb/LISEZ-MOI.md`](../metallb/LISEZ-MOI.md) — l'annonceur L2 installé à côté de Calico
 - [`../cilium/LISEZ-MOI.md`](../cilium/LISEZ-MOI.md) — le CNI par défaut du lab, et son annonce L2
 - [`../envoy-gateway/LISEZ-MOI.md`](../envoy-gateway/LISEZ-MOI.md) — le consommateur du VIP `.200`
