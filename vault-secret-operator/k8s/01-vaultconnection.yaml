@@ -1,18 +1,18 @@
-# VaultConnection : OÙ est Vault (adresse, TLS, CA). OPTIONNEL si defaultVaultConnection
-# est activé dans values.yaml (il pose déjà un VaultConnection "default" cluster-wide).
-# On le fournit ici pour documenter les champs et pour un Vault propre à ce namespace.
+# VaultConnection: WHERE Vault is (address, TLS, CA). OPTIONAL if defaultVaultConnection is
+# enabled in values.yaml (it already lays down a cluster-wide "default" VaultConnection).
+# We provide it here to document the fields, and for a Vault specific to this namespace.
 apiVersion: secrets.hashicorp.com/v1beta1
 kind: VaultConnection
 metadata:
   name: vault-conn
   namespace: demo
 spec:
-  # In-cluster (chart hashicorp/vault dans le ns "vault") :
+  # In-cluster (hashicorp/vault chart in the "vault" ns):
   address: http://vault.vault.svc.cluster.local:8200
-  # Externe / via Gateway du lab : https://vault.lab.example.io
-  # En HTTPS avec CA privée, référencer le Secret (clé "ca.crt") + le nom TLS :
+  # External / through the lab's Gateway: https://vault.lab.example.io
+  # Over HTTPS with a private CA, reference the Secret (key "ca.crt") + the TLS name:
   # caCertSecretRef: vault-ca
   # tlsServerName: vault.lab.example.io
   # skipTLSVerify=true : LAB UNIQUEMENT.
   skipTLSVerify: false
-  # headers: {}        # en-têtes HTTP custom éventuels (proxy, namespace HCP...)
+  # headers: {}        # optional custom HTTP headers (proxy, HCP namespace...)

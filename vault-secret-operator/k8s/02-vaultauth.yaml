@@ -1,13 +1,13 @@
-# VaultAuth : COMMENT s'authentifier à Vault. Ici méthode "kubernetes".
-# Un VaultAuth par usage/role pour rester au moindre privilège (chaque Vault*Secret
-# pointe le VaultAuth correspondant à son role Vault via spec.vaultAuthRef).
+# VaultAuth: HOW to authenticate to Vault. Here, the "kubernetes" method.
+# One VaultAuth per use case/role, to stay at least privilege (each Vault*Secret points at the
+# VaultAuth matching its own Vault role through spec.vaultAuthRef).
 #
-# Le triplet qui doit être cohérent avec Vault :
-#   mount             == chemin du mount auth côté Vault ("kubernetes" -> auth/kubernetes)
-#   kubernetes.role   == nom du role Vault (vault/02-roles.sh)
-#   serviceAccount    \_ doivent matcher bound_service_account_* du role
-#   (namespace du CR) /
-#   audiences         == audience du role Vault ("vault")
+# The set of values that must be consistent with Vault:
+#   mount             == path of the auth mount on the Vault side ("kubernetes" -> auth/kubernetes)
+#   kubernetes.role   == name of the Vault role (vault/02-roles.sh)
+#   serviceAccount    \_ must match the role's bound_service_account_*
+#   (the CR's namespace) /
+#   audiences         == audience of the Vault role ("vault")
 ---
 apiVersion: secrets.hashicorp.com/v1beta1
 kind: VaultAuth
@@ -15,7 +15,7 @@ metadata:
   name: vault-auth-static
   namespace: demo
 spec:
-  vaultConnectionRef: vault-conn      # ou omettre pour utiliser le "default" de values.yaml
+  vaultConnectionRef: vault-conn      # or omit it to use the "default" from values.yaml
   method: kubernetes
   mount: kubernetes
   kubernetes:

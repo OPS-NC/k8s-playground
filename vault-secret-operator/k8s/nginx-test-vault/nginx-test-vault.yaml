@@ -1,23 +1,23 @@
-# Démo end-to-end VSO : un secret Vault (lab-kv/nginx-test-vault/config) synchronisé en
-# Secret K8s, injecté en variables d'env dans nginx, avec REDÉMARRAGE AUTO du Deployment
-# quand le secret change dans Vault (rolloutRestartTargets + refreshAfter).
+# End-to-end VSO demo: a Vault secret (lab-kv/nginx-test-vault/config) synchronised into a
+# K8s Secret, injected as environment variables into nginx, with an AUTOMATIC RESTART of the
+# Deployment when the secret changes in Vault (rolloutRestartTargets + refreshAfter).
 #
-# Prérequis : opérateur VSO déployé + ./vault/lab-kv.sh exécuté (engine + role + secret).
+# Prerequisites: the VSO operator deployed + ./vault/lab-kv.sh executed (engine + role + secret).
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: nginx-test-vault
 ---
-# SA présenté à Vault. Doit matcher le role nginx-test-vault (bound_service_account_*).
+# The SA presented to Vault. Must match the nginx-test-vault role (bound_service_account_*).
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: nginx-test-vault
   namespace: nginx-test-vault
 ---
-# COMMENT s'authentifier à Vault (méthode kubernetes, role nginx-test-vault).
-# Pas de vaultConnectionRef -> utilise la VaultConnection "default" de l'opérateur
+# HOW to authenticate to Vault (the kubernetes method, the nginx-test-vault role).
+# No vaultConnectionRef -> uses the operator's "default" VaultConnection
 # (values.yaml : http://vault.vault.svc.cluster.local:8200).
 apiVersion: secrets.hashicorp.com/v1beta1
 kind: VaultAuth
@@ -44,17 +44,17 @@ spec:
   type: kv-v2
   mount: lab-kv
   path: nginx-test-vault/config
-  refreshAfter: 30s              # VSO relit Vault toutes les 30s
-  hmacSecretData: true           # détecte la dérive sans logguer les valeurs
-  # Le cœur de la demande : quand le Secret change, VSO redémarre ces cibles.
+  refreshAfter: 30s              # VSO re-reads Vault every 30s
+  hmacSecretData: true           # detects drift without logging the values
+  # The heart of the matter: when the Secret changes, VSO restarts these targets.
   rolloutRestartTargets:
     - kind: Deployment
       name: nginx-test-vault
   destination:
-    create: true                 # VSO crée/maintient le Secret
+    create: true                 # VSO creates/maintains the Secret
     name: nginx-test-vault-config
 ---
-# L'appli : nginx qui reçoit le secret en variables d'environnement (envFrom).
+# The application: nginx receiving the secret as environment variables (envFrom).
 apiVersion: apps/v1
 kind: Deployment
 metadata:

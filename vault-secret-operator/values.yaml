@@ -1,61 +1,62 @@
-# Valeurs Helm du Vault Secrets Operator (chart hashicorp/vault-secrets-operator).
+# Helm values for the Vault Secrets Operator (hashicorp/vault-secrets-operator chart).
 # Doc : https://developer.hashicorp.com/vault/docs/deploy/kubernetes/vso/installation
 
-# --- VaultConnection par défaut -------------------------------------------------
-# Pose UN VaultConnection nommé "default" à l'install : les CRD qui ne précisent pas
-# de vaultConnectionRef l'utilisent. Évite de répéter l'adresse partout.
+# --- Default VaultConnection ----------------------------------------------------
+# Lays down ONE VaultConnection named "default" at install time: the CRs that do not specify a
+# vaultConnectionRef use it. Avoids repeating the address everywhere.
 defaultVaultConnection:
   enabled: true
-  # Adresse du serveur Vault. In-cluster (chart hashicorp/vault dans le ns "vault") :
+  # Address of the Vault server. In-cluster (hashicorp/vault chart in the "vault" ns):
   address: "http://vault.vault.svc.cluster.local:8200"
-  # Externe / exposé par le Gateway du lab : "https://vault.lab.example.io"
-  # En HTTPS avec une CA privée, référencer le Secret contenant le CA (clé "ca.crt") :
+  # External / exposed by the lab's Gateway: "https://vault.lab.example.io"
+  # Over HTTPS with a private CA, reference the Secret holding the CA (key "ca.crt"):
   # caCertSecret: "vault-ca"
-  # skipTLSVerify=true : LAB UNIQUEMENT (accepte n'importe quel cert). À NE PAS faire ailleurs.
+  # skipTLSVerify=true: LAB ONLY (accepts any certificate). DO NOT do this anywhere else.
   skipTLSVerify: false
 
-# --- Méthode d'auth par défaut --------------------------------------------------
-# On préfère un VaultAuth explicite par namespace (k8s/02-vaultauth.yaml), plus lisible
-# et multi-tenant. On laisse donc le default désactivé. Décommenter pour un cluster mono-app.
+# --- Default auth method --------------------------------------------------------
+# We prefer an explicit VaultAuth per namespace (k8s/02-vaultauth.yaml), more readable and
+# multi-tenant. So we leave the default disabled. Uncomment for a single-app cluster.
 defaultAuthMethod:
   enabled: false
-  # namespace: ""            # namespace Vault (Vault Enterprise / HCP)
+  # namespace: ""            # Vault namespace (Vault Enterprise / HCP)
   # method: kubernetes
-  # mount: kubernetes        # chemin du mount auth (auth/kubernetes)
+  # mount: kubernetes        # path of the auth mount (auth/kubernetes)
   # kubernetes:
-  #   role: vso-static       # role Vault (cf. vault/02-roles.sh)
+  #   role: vso-static       # Vault role (see vault/02-roles.sh)
   #   serviceAccount: default
   #   tokenAudiences: ["vault"]
 
 controller:
   manager:
-    # --- Cache client + chiffrement du cache -----------------------------------
+    # --- Client cache + cache encryption ---------------------------------------
     # persistenceModel:
-    #   none              -> cache en RAM ; un redémarrage de l'opérateur PERD les leases
-    #                        des creds dynamiques (creds orphelins côté Vault).
-    #   direct-encrypted  -> cache persisté ET chiffré via le moteur Transit de Vault.
-    #                        Les leases survivent au redémarrage -> pas d'orphelins. Recommandé.
+    #   none              -> in-RAM cache; an operator restart LOSES the leases of the
+    #                        dynamic credentials (orphan credentials on the Vault side).
+    #   direct-encrypted  -> cache persisted AND encrypted through Vault's Transit engine.
+    #                        Leases survive a restart -> no orphans. Recommended.
     clientCache:
-      # "none" : cache en RAM, sans dépendance au moteur Transit de Vault. Suffisant pour
-      # des secrets STATIQUES (pas de leases dynamiques à préserver). Repasser à
-      # "direct-encrypted" (+ storageEncryption.enabled=true + moteur transit + role
-      # vso-transit) le jour où on synchronise des creds dynamiques (DB, PKI courtes).
+      # "none": in-RAM cache, with no dependency on Vault's Transit engine. Enough for
+      # STATIC secrets (no dynamic leases to preserve). Switch back to "direct-encrypted"
+      # (+ storageEncryption.enabled=true + the transit engine + the vso-transit role) the
+      # day you synchronise dynamic credentials (DB, short-lived PKI).
       persistenceModel: "none"
       cacheSize: 10000
       storageEncryption:
         enabled: false
-        # Le cache est chiffré par une clé Transit dédiée (cf. vault/policies/vso-transit-cache.hcl
-        # et vault/00-secrets-engines.sh). L'opérateur s'authentifie pour ce chiffrement via SON
-        # propre ServiceAccount et un role Vault dédié (vso-transit).
+        # The cache is encrypted by a dedicated Transit key (see
+        # vault/policies/vso-transit-cache.hcl and vault/00-secrets-engines.sh). The operator
+        # authenticates for that encryption through ITS OWN ServiceAccount and a dedicated
+        # Vault role (vso-transit).
         vaultConnectionRef: default
         method: kubernetes
         mount: kubernetes
         transitMount: transit
         keyName: vso-client-cache
         role: vso-transit
-        # namespace: ""     # namespace Vault si Enterprise/HCP
+        # namespace: ""     # Vault namespace if Enterprise/HCP
 
-# --- Télémétrie (optionnel, si Prometheus Operator présent) ---------------------
+# --- Telemetry (optional, if the Prometheus Operator is present) ----------------
 telemetry:
   serviceMonitor:
-    enabled: false          # passer à true si l'opérateur Prometheus + ses CRD sont installés
+    enabled: false          # switch to true once the Prometheus operator + its CRDs are installed

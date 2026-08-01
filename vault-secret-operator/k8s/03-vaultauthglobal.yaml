@@ -1,18 +1,18 @@
-# VaultAuthGlobal : mutualise la config d'auth entre plusieurs namespaces (DRY, multi-tenant).
-# Au lieu de répéter method/mount/connexion dans chaque VaultAuth, on centralise ici et chaque
-# VaultAuth n'apporte que ce qui lui est propre (le role) via vaultAuthGlobalRef.
-# ÉTAT DE L'ART 2026 pour un cluster à plusieurs équipes. Facultatif pour un lab mono-app.
+# VaultAuthGlobal: shares the auth configuration across several namespaces (DRY, multi-tenant).
+# Instead of repeating method/mount/connection in every VaultAuth, we centralise it here and
+# each VaultAuth only brings what is specific to it (the role) through vaultAuthGlobalRef.
+# The 2026 state of the art for a multi-team cluster. Optional for a single-app lab.
 ---
 apiVersion: secrets.hashicorp.com/v1beta1
 kind: VaultAuthGlobal
 metadata:
   name: global-kubernetes
-  namespace: vault-secrets-operator      # namespace "de confiance" qui héberge le global
+  namespace: vault-secrets-operator      # the "trusted" namespace hosting the global object
 spec:
-  vaultConnectionRef: default            # le VaultConnection posé par values.yaml
+  vaultConnectionRef: default            # the VaultConnection laid down by values.yaml
   defaultAuthMethod: kubernetes
   defaultMount: kubernetes
-  # Restreint QUELS namespaces K8s peuvent référencer ce global (cadrage multi-tenant).
+  # Restricts WHICH K8s namespaces may reference this global object (multi-tenant scoping).
   allowedNamespaces:
     - demo
   kubernetes:
@@ -20,7 +20,7 @@ spec:
     audiences:
       - vault
 ---
-# Un VaultAuth "léger" qui hérite du global et n'ajoute que son role.
+# A "light" VaultAuth that inherits from the global object and only adds its role.
 apiVersion: secrets.hashicorp.com/v1beta1
 kind: VaultAuth
 metadata:
@@ -31,4 +31,4 @@ spec:
     name: global-kubernetes
     namespace: vault-secrets-operator
   kubernetes:
-    role: vso-static           # seul le role est spécifique ; le reste vient du global
+    role: vso-static           # only the role is specific; the rest comes from the global

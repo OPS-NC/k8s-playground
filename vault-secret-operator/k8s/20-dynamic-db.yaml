@@ -1,6 +1,7 @@
-# VaultDynamicSecret : génère des credentials ÉPHÉMÈRES (ici base de données) -> Secret K8s.
-# Vault crée un couple user/password temporaire (lease) à la demande ; VSO le renouvelle avant
-# expiration (renewalPercent) et le révoque à la suppression (revoke). Aucun cred long à gérer.
+# VaultDynamicSecret: generates EPHEMERAL credentials (a database here) -> a K8s Secret.
+# Vault creates a temporary user/password pair (a lease) on demand; VSO renews it before it
+# expires (renewalPercent) and revokes it on deletion (revoke). No long-lived credential to
+# manage.
 apiVersion: secrets.hashicorp.com/v1beta1
 kind: VaultDynamicSecret
 metadata:
@@ -8,16 +9,16 @@ metadata:
   namespace: demo
 spec:
   vaultAuthRef: vault-auth-dynamic    # -> role Vault vso-dynamic -> policy vso-dynamic-db
-  mount: db                           # moteur database monté sur db/
+  mount: db                           # the database engine mounted on db/
   path: creds/demo-app                # role database (cf. vault/00-secrets-engines.sh)
-  # requestHTTPMethod: GET            # défaut pour creds/ ; POST si le role prend des params
-  # params: {}                        # paramètres passés à Vault (ex. ttl)
-  renewalPercent: 67                  # renouvelle le lease à 67 % de sa durée (avant expiration)
-  revoke: true                        # révoque le lease quand ce CR est supprimé
-  allowStaticCreds: false             # true seulement pour les "static roles" (rotation par Vault)
+  # requestHTTPMethod: GET            # the default for creds/; POST if the role takes params
+  # params: {}                        # parameters passed to Vault (e.g. ttl)
+  renewalPercent: 67                  # renews the lease at 67 % of its lifetime (before expiry)
+  revoke: true                        # revokes the lease when this CR is deleted
+  allowStaticCreds: false             # true only for "static roles" (rotation done by Vault)
   rolloutRestartTargets:
     - kind: Deployment
-      name: demo-app                  # redémarre l'app à chaque rotation des creds
+      name: demo-app                  # restarts the app on every credential rotation
   destination:
     create: true
-    name: dynamic-db                  # Secret produit : clés username / password (+ lease infos)
+    name: dynamic-db                  # produced Secret: username / password keys (+ lease info)
