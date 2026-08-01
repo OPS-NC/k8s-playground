@@ -1,28 +1,28 @@
-# kube-prometheus-stack-values.yaml — pile métriques des labs Talos / kubeadm.
+# kube-prometheus-stack-values.yaml — the metrics stack of the Talos / kubeadm labs.
 #
-# Fournit : Prometheus (+ opérateur & CRDs ServiceMonitor/PodMonitor), Grafana,
-# Alertmanager, node-exporter, kube-state-metrics. C'est la base de tout module « ops »
+# Provides: Prometheus (+ the operator & the ServiceMonitor/PodMonitor CRDs), Grafana,
+# Alertmanager, node-exporter, kube-state-metrics. It is the base of any "ops" module
 # (PromQL, dashboards, alerting).
 #
 # Choix « lab » :
-#   - stockage sur `longhorn-r1` (1 réplica bloc, StorageClass posée par l'addon
-#     longhorn/) → PVC légers, pas de saturation du disque partagé avec l'OS.
-#   - rétention courte (2 j) + resources bornées (CP/workers modestes).
-#   - controller-manager et scheduler SCRUTÉS (voir plus bas) : contrairement au lab Talos,
+#   - storage on `longhorn-r1` (1 block replica, the StorageClass laid down by the longhorn/
+#     add-on) → light PVCs, no saturation of the disk shared with the OS.
+#   - short retention (2 days) + bounded resources (modest CPs/workers).
+#   - controller-manager and scheduler SCRAPED (see below): unlike the Talos lab,
 #     kubeadm/templates/kubeadm-init.yaml.tpl leur pose `bind-address: 0.0.0.0`.
 
 grafana:
-  # Mot de passe admin par défaut du chart : admin / prom-operator (à changer, cf. README).
+  # The chart's default admin password: admin / prom-operator (change it, see the README).
   persistence:
     enabled: true
     storageClassName: longhorn-r1
     size: 1Gi
   grafana.ini:
     server:
-      # Grafana est exposé à la racine d'un hôte dédié (pas de sous-chemin).
+      # Grafana is exposed at the root of a dedicated host (no sub-path).
       domain: grafana.lab.example.io
       root_url: https://grafana.lab.example.io
-  # Ajoute Loki comme source de logs (l'addon Loki tourne dans le même namespace).
+  # Adds Loki as a log source (the Loki add-on runs in the same namespace).
   additionalDataSources:
     - name: Loki
       type: loki
@@ -49,8 +49,8 @@ prometheus:
           resources:
             requests:
               storage: 3Gi
-    # Scrape TOUS les ServiceMonitor/PodMonitor du cluster (pas seulement ceux portant
-    # le label de CE release). Indispensable pour récupérer trivy-operator, CloudNativePG, etc.
+    # Scrape EVERY ServiceMonitor/PodMonitor of the cluster (not only those carrying THIS
+    # release's label). Essential to pick up trivy-operator, CloudNativePG, etc.
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
@@ -59,23 +59,23 @@ prometheus:
 alertmanager:
   alertmanagerSpec:
     externalUrl: https://alertmanager.lab.example.io
-    # Pas de PVC : stockage emptyDir (défaut) — l'historique d'alertes n'a pas besoin de survivre dans un lab.
+    # No PVC: emptyDir storage (the default) — the alert history does not need to survive in a lab.
 
-# --- Composants du control plane -------------------------------------------------------
+# --- Control-plane components ----------------------------------------------------------
 # ⚠️ SECTION PILOTÉE PAR LE PROFIL DE DISTRIBUTION.
 # `observability-up.sh` force `kubeControllerManager.enabled=false`,
 # `kubeScheduler.enabled=false` et `kubeEtcd.enabled=false` quand
-# `KPS_SCRAPE_CONTROL_PLANE=false` — c'est-à-dire sur TALOS, où ces composants ne sont pas
-# scrutables sans configuration TLS dédiée : les cibles resteraient « down » sans
-# explication, ce qui est le pire des scénarios en formation.
-# Ce qui est écrit ci-dessous est donc le cas KUBEADM, où le bootstrap du lab a rendu les
-# trois scrutables. On active au cas par cas plutôt qu'en bloc, pour ne jamais livrer une
+# `KPS_SCRAPE_CONTROL_PLANE=false` — that is to say on TALOS, where those components are not
+# scrapable without dedicated TLS configuration: the targets would stay "down" with no
+# explanation, the worst possible scenario during training.
+# What is written below is therefore the KUBEADM case, where the lab's bootstrap made all
+# three scrapable. We enable them case by case rather than in bulk, so as never to ship a
 # cible morte.
 #
-# controller-manager et scheduler tournent en pods STATIQUES sur les control planes. Le chart
-# crée pour eux un Service headless dans `kube-system` dont le sélecteur est
-# `component: kube-controller-manager` / `component: kube-scheduler` — exactement les labels
-# que kubeadm pose sur ses manifestes statiques : rien d'autre à faire.
+# controller-manager and scheduler run as STATIC pods on the control planes. The chart creates
+# a headless Service for them in `kube-system` whose selector is
+# `component: kube-controller-manager` / `component: kube-scheduler` — exactly the labels
+# kubeadm puts on its static manifests: nothing else to do.
 kubeControllerManager:
   enabled: true
   service:
@@ -84,9 +84,9 @@ kubeControllerManager:
     targetPort: 10257
   serviceMonitor:
     https: true
-    # Le certificat servi sur :10257 est signé par la CA du cluster mais ne porte PAS le nom
-    # DNS du Service : la vérification échouerait (`x509: certificate is valid for ...`).
-    # Acceptable ici, le scrape reste chiffré et reste sur le réseau host-only.
+    # The certificate served on :10257 is signed by the cluster CA but does NOT carry the
+    # Service's DNS name: verification would fail (`x509: certificate is valid for ...`).
+    # Acceptable here, the scrape stays encrypted and stays on the host-only network.
     insecureSkipVerify: true
 
 kubeScheduler:
@@ -99,22 +99,23 @@ kubeScheduler:
     https: true
     insecureSkipVerify: true
 
-# etcd : ACTIVÉ, mais seulement parce que le lab l'a rendu possible AU BOOTSTRAP.
+# etcd: ENABLED, but only because the lab made it possible AT BOOTSTRAP.
 #
-# Par défaut, kubeadm génère le pod statique etcd avec
+# By default, kubeadm generates the etcd static pod with
 # `--listen-metrics-urls=http://127.0.0.1:2381` : l'endpoint n'existe qu'en LOOPBACK,
-# où il ne sert que la sonde de liveness du pod. Prometheus scrute depuis un pod et
-# ne peut pas atteindre le loopback du node — la cible resterait DOWN sans explication.
+# where it only serves the pod's liveness probe. Prometheus scrapes from a pod and cannot
+# reach the node's loopback — the target would stay DOWN with no explanation.
 #
-# `kubeadm/templates/kubeadm-init.yaml.tpl` passe donc `etcd.local.extraArgs`
-# `listen-metrics-urls: http://0.0.0.0:2381`. Si tu montes un cluster autrement que
-# par `kubeadm/cluster-up.sh`, repasse `enabled: false` — sinon tu auras une cible morte.
+# `kubeadm/templates/kubeadm-init.yaml.tpl` therefore passes `etcd.local.extraArgs`
+# `listen-metrics-urls: http://0.0.0.0:2381`. If you build a cluster in any other way than
+# through `kubeadm/cluster-up.sh`, set `enabled: false` again — otherwise you get a dead
+# target.
 #
-# Port 2381 et `scheme: http` : c'est l'endpoint de métriques EN CLAIR, à ne pas
-# confondre avec 2379 (l'API client d'etcd, en TLS mutuel, qui exigerait de monter
-# les certificats etcd dans Prometheus).
-# ⚠️ 2381 ne demande AUCUNE authentification : il n'est acceptable ouvert que parce
-#    que le lab vit sur un réseau host-only isolé.
+# Port 2381 and `scheme: http`: this is the PLAINTEXT metrics endpoint, not to be confused
+# with 2379 (etcd's client API, over mutual TLS, which would require mounting the etcd
+# certificates into Prometheus).
+# ⚠️ 2381 requires NO authentication at all: leaving it open is only acceptable because the
+#    lab lives on an isolated host-only network.
 kubeEtcd:
   enabled: true
   service:
@@ -124,10 +125,10 @@ kubeEtcd:
   serviceMonitor:
     scheme: http
 
-# kube-proxy : DÉSACTIVÉ parce qu'il N'EXISTE PAS. `KUBE_PROXY_REPLACEMENT=true` (défaut de
-# lab.env) fait tourner `kubeadm init --skip-phases=addon/kube-proxy` et Cilium prend les
-# Services en eBPF. Les métriques équivalentes viennent de Cilium (cf. cilium/).
-# Même avec `KUBE_PROXY_REPLACEMENT=false`, kube-proxy n'expose ses métriques qu'en
-# 127.0.0.1:10249 tant que `metricsBindAddress` n'est pas ouvert.
+# kube-proxy: DISABLED because it DOES NOT EXIST. `KUBE_PROXY_REPLACEMENT=true` (the lab.env
+# default) runs `kubeadm init --skip-phases=addon/kube-proxy` and Cilium handles Services in
+# eBPF. The equivalent metrics come from Cilium (see cilium/).
+# Even with `KUBE_PROXY_REPLACEMENT=false`, kube-proxy only exposes its metrics on
+# 127.0.0.1:10249 until `metricsBindAddress` is opened.
 kubeProxy:
   enabled: false

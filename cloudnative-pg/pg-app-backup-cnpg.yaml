@@ -1,15 +1,16 @@
-# pg-app-backup-cnpg.yaml — backup NATIF CloudNativePG (via CRD) du cluster `pg-demo`
-# (qui contient la base `app`), poussé dans MinIO en S3.
+# pg-app-backup-cnpg.yaml — the NATIVE CloudNativePG backup (through CRDs) of the `pg-demo`
+# cluster (which holds the `app` database), pushed to MinIO over S3.
 #
-# ≠ du backup pg_dump-via-Vault (pg-backup-vault-s3.yaml) : ici c'est du PHYSIQUE géré par
-# l'opérateur (base backup + archivage WAL continu → PITR), sur TOUTE l'instance (donc `app`
-# incluse), avec les identifiants INTERNES de CNPG (pas ceux de Vault).
+# ≠ the pg_dump-through-Vault backup (pg-backup-vault-s3.yaml): this one is PHYSICAL and
+# managed by the operator (base backup + continuous WAL archiving → PITR), covering the WHOLE
+# instance (so `app` included), with CNPG's INTERNAL credentials (not Vault's).
 #
-# Prérequis : `spec.backup.barmanObjectStore` configuré sur le Cluster `pg-demo` (fait par
-# pg-app-backup-cnpg-up.sh ; snippet ci-dessous à titre de doc) + bucket MinIO `cnpg-backups`
-# + Secret `cnpg-backup-s3` (access/secret key). CNPG opérateur ≤ 1.30 (in-tree barman).
+# Prerequisites: `spec.backup.barmanObjectStore` configured on the `pg-demo` Cluster (done by
+# pg-app-backup-cnpg-up.sh; the snippet below is documentation only) + the `cnpg-backups` MinIO
+# bucket + the `cnpg-backup-s3` Secret (access/secret key). CNPG operator <= 1.30 (in-tree
+# barman).
 #
-# --- Snippet appliqué au Cluster (pour référence) ---------------------------
+# --- Snippet applied to the Cluster (for reference) -------------------------
 #   spec:
 #     backup:
 #       retentionPolicy: "7d"
@@ -23,19 +24,19 @@
 #         data: { compression: gzip }
 # ----------------------------------------------------------------------------
 ---
-# Backup RÉCURRENT : toutes les heures (cron CNPG à 6 champs, la 1re = les secondes).
+# RECURRING backup: every hour (CNPG's 6-field cron, the 1st being the seconds).
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
 metadata:
   name: pg-demo-hourly
   namespace: cnpg-demo
 spec:
-  schedule: "0 0 * * * *"        # sec=0 min=0 => au top de chaque heure
+  schedule: "0 0 * * * *"        # sec=0 min=0 => on the hour, every hour
   backupOwnerReference: self
   cluster:
     name: pg-demo
 ---
-# Backup À LA DEMANDE (exemple) : `kubectl apply` de cet objet déclenche un backup immédiat.
+# ON-DEMAND backup (example): `kubectl apply` of this object triggers an immediate backup.
 apiVersion: postgresql.cnpg.io/v1
 kind: Backup
 metadata:
