@@ -5,13 +5,15 @@
 # ☸️ k8s-playground — the Kubernetes layer for the Talos **and** kubeadm labs
 
 > **One repository of manifests and charts for two Vagrant labs.** The application layer
-> (CNI, Gateway API, storage, secrets, observability, security) used to be duplicated in
-> `Vagrant-Talos/_k8s/` and `Vagrant-KubeADM/_k8s/`. It now lives here **once**, and the
-> target distribution became an **argument**:
+> (CNI, Gateway API, storage, secrets, observability, security) used to be **duplicated**, in
+> `Vagrant-Talos/_k8s/` and again in `Vagrant-KubeADM/_k8s/`. It now lives here **once** — and
+> both labs mount *this* repository at that very same `_k8s/` path, as a **git submodule**.
+> The target distribution became an **argument**:
 >
 > ```bash
-> ./install.sh talos platform          # on the Talos cluster
-> ./install.sh kubeadm platform        # on the kubeadm/Debian 13 cluster
+> ./_k8s/install.sh talos platform     # from the Talos lab root     (submodule layout)
+> ./_k8s/install.sh kubeadm platform   # from the kubeadm lab root
+> ./install.sh kubeadm platform        # from this repo's root       (sibling layout)
 > ```
 
 📖 **Browsable documentation**: <https://ops-nc.github.io/k8s-playground/> — a single
@@ -25,32 +27,147 @@ network behind.
 
 ## ⚡ Quick start
 
+You never start here: you start **in a lab**, which is where the cluster and its state live.
+This repository is mounted there as the `_k8s/` submodule.
+
 ```bash
-# 1. Bring up the cluster from the matching lab (sibling repository)
+# 1. The lab — its submodule included (Talos twin: OPS-NC/Vagrant-Talos)
+git clone --recurse-submodules https://github.com/OPS-NC/Vagrant-kubeadm.git
+cd Vagrant-kubeadm
+cp lab.env.example lab.env           # topology, domain, TLS mode, CNI
+vagrant up && ./kubeadm/cluster-up.sh    # nodes are NotReady: no CNI yet
+
+# 2. Say where the lab is, then lay down the base platform
+export KUBECONFIG="$PWD/kubeconfig"
+export LAB_DIR="$PWD"                # ⚠️ MANDATORY in submodule layout — see below
+./_k8s/install.sh kubeadm platform   # CNI → Envoy Gateway → metrics-server → wildcard TLS
+
+# 3. Add-ons, opt-in
+./_k8s/install.sh kubeadm longhorn vault argocd
+./_k8s/install.sh kubeadm list       # the full catalogue
+./_k8s/install.sh kubeadm all        # platform + every add-on, in dependency order
+```
+
+<details>
+<summary>Variant — the two repositories side by side (the pre-submodule layout, still supported)</summary>
+
+```bash
 cd ../Vagrant-Talos    && ./talos/cluster-up.sh        # or
 cd ../Vagrant-KubeADM  && ./kubeadm/cluster-up.sh
 
-# 2. Come back here and lay down the base platform
-cd ../k8s-playground
-./install.sh talos platform          # CNI → Envoy Gateway → metrics-server → wildcard TLS
-
-# 3. Add-ons, opt-in
-./install.sh talos longhorn vault argocd
-./install.sh talos list              # the full catalogue
-./install.sh talos all               # platform + every add-on, in dependency order
+cd ../k8s-playground                 # this repo, sibling of the lab
+./install.sh talos platform          # lab.env / _out/ found on their own — no LAB_DIR
 ```
+
+Here the lab repository sits one level up, next to this one, and the scripts find it on their
+own (rule 3 below) — so `LAB_DIR` is optional. That is the **only** difference between the two
+layouts.
+</details>
 
 Every component is still **runnable on its own**, with the distribution as its argument:
 
 ```bash
-./longhorn/longhorn-up.sh talos
-./observability/observability-up.sh kubeadm
+./_k8s/longhorn/longhorn-up.sh kubeadm       # from the lab root    (submodule layout)
+./observability/observability-up.sh talos    # from this repo root  (sibling layout)
 ```
 
 > 🎓 **Training mode.** Every directory ships a `README.md` (EN) / `LISEZ-MOI.md` (FR) with a
 > **"Guided walkthrough"** section: the same installation, **command by command**, with what to
 > observe at each step and the per-distribution variants. The all-in-one script and the
 > walkthrough do exactly the same thing.
+
+## 🧩 Two layouts: submodule or sibling repositories
+
+Both labs mount this repository as a **git submodule** on `_k8s/`, at their root. That is the
+**normal** layout, the one every lab command assumes. Keeping the two repositories **side by
+side** — what existed before — still works, and stays documented here as the variant.
+
+| | **Submodule** (recommended) | **Sibling repositories** (variant) |
+|---|---|---|
+| On disk | `Vagrant-KubeADM/_k8s/` **is** this repo | `Vagrant-KubeADM/` and `k8s-playground/` in the same parent directory |
+| Where you run the scripts | from the **lab** root: `./_k8s/install.sh <distro> …` | from **this** repo's root: `./install.sh <distro> …` |
+| `LAB_DIR` | **required** — `export LAB_DIR="$PWD"` from the lab root | optional: rule 3 below finds `../<lab repo>` on its own |
+| Version of the application layer | **pinned** by the lab to one commit ⇒ the lab is reproducible | whatever happens to be checked out next door |
+| Getting it | `git clone --recurse-submodules …`, or `git submodule update --init --recursive` | one `git clone` per repository |
+| Updating it | `git submodule update --remote _k8s`, then commit the moved pointer | `git pull` here |
+| Naming constraint | none: `_k8s/` is imposed by the labs, and both use it | the lab directory **must** be named exactly `Vagrant-Talos` / `Vagrant-KubeADM` (`LAB_REPO_NAME`), otherwise `LAB_DIR` again |
+
+Installing and updating the submodule, from the lab:
+
+```bash
+git clone --recurse-submodules https://github.com/OPS-NC/Vagrant-kubeadm.git
+git submodule update --init --recursive   # fills _k8s/ on a clone already made
+git submodule update --remote _k8s        # moves _k8s/ onto the latest commit of this repo
+```
+
+> ⚠️ **`git pull` in the lab does NOT update the submodule.** It moves the lab repository
+> only; `_k8s/` stays on the commit pinned before, and you would be running the documented
+> commands against an **older** application layer. Follow every pull with
+> `git submodule update --init --recursive`. And an empty `_k8s/` — `./_k8s/install.sh: No
+> such file or directory` — always means one single thing: the submodule was never
+> initialised.
+
+> 💡 **Changing this layer is a change made *here*.** Seen from a lab, `_k8s/` is a checkout
+> of this repository on a **detached HEAD**: files edited in it belong to this repo, not to
+> the lab, and a `git commit` run inside `_k8s/` commits **here**. The route is therefore: PR
+> on this repository → merge → in the lab, `git submodule update --remote _k8s`, then commit
+> the bumped pointer (`git status` shows `modified: _k8s (new commits)`). That commit **is**
+> the application layer's version bump, and it is what keeps a lab reproducible.
+
+## 📍 Where `lab.env` and `_out/` are found — `LAB_DIR`
+
+The scripts store **nothing**. `lab.env` (the intent: domain, TLS mode, CNI, VM sizes) and
+`_out/` (the facts: `talosconfig`, `cluster.env`, the local CA in `_out/self-signed/`,
+`_out/vault-init.json`…) live in the **lab** repository, with the `kubeconfig` right beside
+them at its root. `_resoudre_lab_dir()`, in `lib/common.sh`, looks for that directory in this
+order:
+
+| # | Candidate | Applies when |
+|---|---|---|
+| 1 | `$LAB_DIR`, failing that the directory holding `$LAB_ENV` | either one is exported — **always wins**, in both layouts |
+| 2 | the root of **this** repository | a `lab.env` file or an `_out/` directory sits here (a symlink counts) |
+| 3 | `<root of this repo>/../$LAB_REPO_NAME` — `Vagrant-Talos` or `Vagrant-KubeADM`, set by the distribution profile | that directory exists ⇒ **sibling layout**, nothing to declare |
+| 4 | fallback: the root of this repository | nothing above matched — and this happens **silently** |
+
+`KUBECONFIG` follows the same directory: unless it is already exported, it becomes
+`<lab dir>/kubeconfig`.
+
+> ⚠️ **In submodule layout, rule 3 can never match: `export LAB_DIR="$PWD"`.** The root of
+> this repository is then `Vagrant-KubeADM/_k8s`, so `<root>/../Vagrant-KubeADM` resolves to
+> `Vagrant-KubeADM/Vagrant-KubeADM` — a path that does not exist. Resolution therefore falls
+> through to rule 4: **this repository itself**, which carries neither `lab.env` nor `_out/`.
+> Nothing fails loudly. The scripts run on the **profile defaults** — `<distro>.lab.example.io`
+> instead of your `LAB_DOMAIN` (hence a wildcard TLS Secret under a name no add-on will look
+> for), `CNI=cilium` instead of the CNI you picked, guessed `POD_CIDR` /
+> `HOSTONLY_IF` / `KUBE_PROXY_REPLACEMENT` instead of the ones `cluster-up.sh` detected — and
+> `KUBECONFIG` points at a file that does not exist, so `kubectl` addresses whatever ambient
+> context you happen to have, or nothing at all. Rule 1 exists for exactly this case: export
+> `LAB_DIR` next to `KUBECONFIG`, from the lab root, **every time**.
+
+> 💡 **One signal does fire, on kubeadm only.** `platform-up.sh` warns when
+> `_out/cluster.env` is missing — *"`./kubeadm/cluster-up.sh` has not been run (or not to the
+> end)"*. Read it as a resolution problem first: nine times out of ten the file exists and it
+> is `LAB_DIR` that is missing. The warning is **non-blocking**, and on Talos there is no
+> equivalent (that lab has no `cluster.env`).
+
+Every script prints its resolution before touching anything — one line, worth reading:
+
+```
+    profil kubeadm (Debian 13 + kubeadm) · domaine *.kubeadm.lab.example.io · lab.env absent (défauts)
+```
+
+`lab.env absent (défauts)` on a lab that *does* have a `lab.env`, or a `domaine` that is not
+the one you set: the resolution missed, and `LAB_DIR` is the fix.
+
+Overriding it all by hand stays possible — useful for a lab kept somewhere else entirely, or
+to exercise this repository in isolation:
+
+```bash
+LAB_DIR=~/labs/my-lab   ./install.sh talos platform      # lab.env + _out/ + kubeconfig, all there
+LAB_ENV=~/labs/my-lab/lab.env  ./install.sh talos platform   # its directory becomes the lab dir
+LAB_ENV=~/labs/my-lab/lab.env  KUBECONFIG=~/labs/my-lab/kubeconfig  ./install.sh talos platform
+cp lab.env.example lab.env && ./install.sh talos platform    # rule 2: self-contained test
+```
 
 ## 🎯 How the distribution is selected
 
@@ -67,6 +184,14 @@ In priority order:
 With none of the above, the scripts **refuse to run**: applying a Talos-shaped manifest on
 Debian (or the reverse) does not produce a clean error but a silent failure — a `Deployment`
 that gets created while no pod ever starts, for instance.
+
+> ℹ️ **Source 4 has a chicken-and-egg twist.** `lab.env` has to be located *before* the
+> distribution is known, and at that point `LAB_REPO_NAME` — which rule 3 of the previous
+> section depends on — comes from a profile that has not been loaded yet. So `DISTRO=` in a
+> lab's `lab.env` is only read when the lab directory is **explicit** (`LAB_DIR` / `LAB_ENV`)
+> or when the `lab.env` sits at this repo's root; otherwise resolution falls through to
+> detection on the cluster (source 5). Passing the distribution as the first argument, the way
+> every example does, sidesteps the question entirely.
 
 ## 🧬 What actually differs between the two labs
 
@@ -113,13 +238,14 @@ docs/build.py               builds the single-page site from every README (make 
 Makefile                    docs, docs-check, validate — everything that runs without a cluster
 ```
 
-The scripts store **nothing**: `lab.env` and `_out/` (kubeconfig, talosconfig, generated
-secrets) stay in the lab repository. They are located automatically (`../Vagrant-Talos/` or
-`../Vagrant-KubeADM/`, depending on the distribution), and that is overridable:
+In submodule layout, that whole tree hangs under the lab's `_k8s/` — `./_k8s/install.sh`,
+`./_k8s/longhorn/longhorn-up.sh`, and so on. Nothing else moves: paths *inside* this
+repository are the same either way, which is why every walkthrough is written from this
+repository's root.
 
-```bash
-LAB_ENV=~/labs/my-lab/lab.env  KUBECONFIG=~/labs/my-lab/kubeconfig  ./install.sh talos platform
-```
+There is **no `Vagrantfile` and no `_out/` here**, by design: this repo owns the manifests,
+the lab owns the cluster and its state — see
+[Where `lab.env` and `_out/` are found](#-where-labenv-and-_out-are-found--lab_dir).
 
 ## 🔗 Dependency chain
 
@@ -156,9 +282,16 @@ versioned file — `git status` stays clean:
 | `lab-example-io` | `$LAB_DOMAIN_DASH` — the wildcard TLS Secret name | derived from `LAB_DOMAIN` |
 | `lab-kv` | `$VAULT_KV_MOUNT` (`talos-lab` / `kubeadm-lab`) | distribution profile |
 
+`LAB_DOMAIN` is set in the **lab's** `lab.env`, never here — so from the lab root, whichever
+layout you are in:
+
 ```bash
-echo 'LAB_DOMAIN=k8s.my-domain.tld' >> ../Vagrant-Talos/lab.env
+echo 'LAB_DOMAIN=k8s.my-domain.tld' >> lab.env      # in Vagrant-Talos/ or Vagrant-KubeADM/
 ```
+
+> ⚠️ A domain that stays at `<distro>.lab.example.io` while `lab.env` says otherwise is the
+> **first** symptom of a `lab.env` that was never found: check `LAB_DIR` before suspecting the
+> substitution.
 
 > ⚠️ **Manifests applied by hand** (without a `*-up.sh`) get no substitution:
 > `wordpress-example/wordpress-mariadb.yaml`, `vault-secret-operator/k8s/*.yaml`,
@@ -281,6 +414,13 @@ as-is.
 
 ## ⚠️ Pitfalls
 
+- **`LAB_DIR` forgotten in submodule layout.** The most expensive one, because it costs
+  nothing visible: no error, no missing file, just an installation carried out with the
+  profile defaults and no kubeconfig. From the lab root, always
+  `export KUBECONFIG="$PWD/kubeconfig" LAB_DIR="$PWD"` before `./_k8s/…`, and read the
+  `lab.env …` marker on the summary line.
+- **A `git pull` in a lab does not move `_k8s/`.** The submodule stays pinned to its previous
+  commit: `git submodule update --init --recursive` after every pull.
 - **Two default StorageClasses.** `longhorn/values.yaml` sets `persistence.defaultClass:
   true` and `local-path-storage.yaml` sets the `is-default-class: "true"` annotation. With
   both add-ons installed ⇒ a PVC without an explicit `storageClassName` lands on the most
@@ -302,11 +442,18 @@ as-is.
 
 ## 📚 References
 
-- [`../Vagrant-Talos/`](../Vagrant-Talos/) — the Talos lab (from `vagrant up` to a ready cluster)
-- [`../Vagrant-KubeADM/`](../Vagrant-KubeADM/) — the Debian 13 + kubeadm lab
+- [OPS-NC/Vagrant-Talos](https://github.com/OPS-NC/Vagrant-Talos) — the Talos lab (from
+  `vagrant up` to a ready cluster) · [browsable docs](https://ops-nc.github.io/Vagrant-Talos/)
+- [OPS-NC/Vagrant-kubeadm](https://github.com/OPS-NC/Vagrant-kubeadm) — the Debian 13 + kubeadm
+  lab · [browsable docs](https://ops-nc.github.io/Vagrant-kubeadm/)
 - [Gateway API](https://gateway-api.sigs.k8s.io/) ·
   [Cilium](https://docs.cilium.io/) ·
   [Envoy Gateway](https://gateway.envoyproxy.io/) ·
   [cert-manager](https://cert-manager.io/docs/) ·
   [Talos Linux](https://www.talos.dev/latest/) ·
   [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/)
+
+Both labs mount this repository as their `_k8s/` submodule; each one documents its own
+bootstrap, its `lab.env` and its lifecycle. The relative paths that used to point at
+`../Vagrant-Talos/` and `../Vagrant-KubeADM/` are gone: they resolved to nothing on the
+published site, and to two different places depending on the layout.
