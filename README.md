@@ -271,6 +271,7 @@ the install scripts never test the distribution through scattered `if`s, they re
 | **Cluster facts** | `_out/controlplane.yaml` (`podSubnets`) | `_out/cluster.env` (CIDR, interface, kube-proxy) | — |
 | **Demo Vault KV mount** | `talos-lab/` | `kubeadm-lab/` | `VAULT_KV_MOUNT` |
 | **Self-signed CA** | `O=Vagrant-Talos lab` | `O=Vagrant-KubeADM lab` | `CA_ORG`, `CA_FILE_NAME` |
+| **API-server OIDC flags (`dex/`)** | `talosctl patch mc` — **the machine configuration is an API**; `extraArgs` is a map | `kubeadm-config` ConfigMap + `kubeadm init phase` **on each control plane**; `extraArgs` is a list of `{name, value}` (v1beta4) | `APISERVER_OIDC_PATCH`, `APISERVER_OIDC_MECANISME`, `apiserver_oidc_commandes()` |
 
 Everything else — Argo CD, Kyverno, MinIO, CloudNativePG, Vault, Envoy Gateway, cert-manager,
 chaoskube, node-problem-detector, WordPress — is **strictly identical** on both distributions.
@@ -374,6 +375,8 @@ variable.
 | local-path-provisioner | image `rancher/…` | `v0.0.36` | `local-path-storage/local-path-storage.yaml` | — |
 | CloudNativePG | `cnpg/cloudnative-pg` | `0.29.0` (app 1.30.0) | `cloudnative-pg/cloudnative-pg-up.sh` | `CNPG_VERSION` |
 | Keycloak | `keycloak-k8s-resources` (operator **and** server) | `26.7.0` | `keycloak/keycloak-up.sh` | `KEYCLOAK_VERSION` |
+| Dex | `dex/dex` | `0.24.1` (app v2.44.0) | `dex/dex-up.sh` | `DEX_VERSION` |
+| kubelogin | host binary `kubectl oidc-login` | `v1.36.3` (reference) | `dex/README.md` | — |
 | Vault | `hashicorp/vault` | `0.34.0` | `vault-cluster/vault-up.sh` | `VAULT_CHART_VERSION` |
 | Vault Secrets Operator | `hashicorp/vault-secrets-operator` | `1.5.0` | `vault-secret-operator/` (docs) | — |
 | kube-prometheus-stack | `prometheus-community/…` | `88.0.1` (op. v0.93.0) | `observability/observability-up.sh` | `KPS_VERSION` |
@@ -428,6 +431,7 @@ variable.
 | Directory | Purpose | Command | Prerequisites |
 |---|---|---|---|
 | [`keycloak/`](keycloak/README.md) | Keycloak through its **operator**, declared `lab` realm, OIDC issuer at `keycloak.<LAB_DOMAIN>` | `./install.sh <distro> keycloak` | `cnpg`, SC `longhorn-r1` |
+| [`dex/`](dex/README.md) | Dex in front of Keycloak — `kubectl` login over OIDC (`oidc-login`), rights driven by a group | `./install.sh <distro> dex` | `keycloak` |
 
 ### 🔐 Secrets
 

@@ -279,6 +279,7 @@ des variables.
 | **Faits du cluster** | `_out/controlplane.yaml` (`podSubnets`) | `_out/cluster.env` (CIDR, interface, kube-proxy) | — |
 | **Moteur KV Vault de démo** | `talos-lab/` | `kubeadm-lab/` | `VAULT_KV_MOUNT` |
 | **AC auto-signée** | `O=Vagrant-Talos lab` | `O=Vagrant-KubeADM lab` | `CA_ORG`, `CA_FILE_NAME` |
+| **Flags OIDC de l'apiserver (`dex/`)** | `talosctl patch mc` — **la configuration machine est une API** ; `extraArgs` est une map | ConfigMap `kubeadm-config` + `kubeadm init phase` **sur chaque control plane** ; `extraArgs` est une liste de `{name, value}` (v1beta4) | `APISERVER_OIDC_PATCH`, `APISERVER_OIDC_MECANISME`, `apiserver_oidc_commandes()` |
 
 Tout le reste — Argo CD, Kyverno, MinIO, CloudNativePG, Vault, Envoy Gateway, cert-manager,
 chaoskube, node-problem-detector, WordPress — est **strictement identique** sur les deux
@@ -384,6 +385,8 @@ d'environnement.
 | local-path-provisioner | image `rancher/…` | `v0.0.36` | `local-path-storage/local-path-storage.yaml` | — |
 | CloudNativePG | `cnpg/cloudnative-pg` | `0.29.0` (app 1.30.0) | `cloudnative-pg/cloudnative-pg-up.sh` | `CNPG_VERSION` |
 | Keycloak | `keycloak-k8s-resources` (opérateur **et** serveur) | `26.7.0` | `keycloak/keycloak-up.sh` | `KEYCLOAK_VERSION` |
+| Dex | `dex/dex` | `0.24.1` (app v2.44.0) | `dex/dex-up.sh` | `DEX_VERSION` |
+| kubelogin | binaire hôte `kubectl oidc-login` | `v1.36.3` (référence) | `dex/LISEZ-MOI.md` | — |
 | Vault | `hashicorp/vault` | `0.34.0` | `vault-cluster/vault-up.sh` | `VAULT_CHART_VERSION` |
 | Vault Secrets Operator | `hashicorp/vault-secrets-operator` | `1.5.0` | `vault-secret-operator/` (doc) | — |
 | kube-prometheus-stack | `prometheus-community/…` | `88.0.1` (op. v0.93.0) | `observability/observability-up.sh` | `KPS_VERSION` |
@@ -439,6 +442,7 @@ d'environnement.
 | Dossier | Rôle | Commande | Prérequis |
 |---|---|---|---|
 | [`keycloak/`](keycloak/LISEZ-MOI.md) | Keycloak par son **opérateur**, realm `lab` déclaré, issuer OIDC sur `keycloak.<LAB_DOMAIN>` | `./install.sh <distro> keycloak` | `cnpg`, SC `longhorn-r1` |
+| [`dex/`](dex/LISEZ-MOI.md) | Dex devant Keycloak — connexion `kubectl` par OIDC (`oidc-login`), droits pilotés par un groupe | `./install.sh <distro> dex` | `keycloak` |
 
 ### 🔐 Secrets
 

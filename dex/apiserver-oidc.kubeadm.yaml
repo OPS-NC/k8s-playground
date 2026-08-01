@@ -1,0 +1,44 @@
+# apiserver-oidc.kubeadm.yaml — fragment de `ClusterConfiguration` kubeadm : branche
+# l'authentification OIDC du serveur d'API sur Dex.
+#
+# ⚠️ CE FICHIER NE S'APPLIQUE PAS AVEC `kubectl`. Sur un lab kubeadm, le kube-apiserver
+#    est un POD STATIQUE : son manifeste est un fichier sur le disque de chaque control
+#    plane (`/etc/kubernetes/manifests/kube-apiserver.yaml`), régénéré par `kubeadm`
+#    depuis la ConfigMap `kubeadm-config`. La procédure complète — fusionner ce fragment
+#    dans la ConfigMap, puis régénérer le manifeste sur chaque control plane — est dans
+#    le README (section « Câbler le serveur d'API »).
+#
+# POURQUOI PASSER PAR LA ConfigMap plutôt qu'éditer le manifeste à la main : un
+# `kubeadm upgrade` régénère le manifeste depuis `kubeadm-config` et écraserait
+# silencieusement une édition manuelle. La ConfigMap est la source de vérité.
+#
+# 🔏 CAS `SELF_SIGNED=true` (le défaut du dépôt) : ajouter en plus
+#    `{name: oidc-ca-file, value: /etc/kubernetes/pki/oidc-ca.crt}` et déposer l'AC du lab
+#    à ce chemin sur chaque control plane. `/etc/kubernetes/pki` est DÉJÀ monté dans le
+#    pod statique : aucun volume à ajouter — c'est la contrepartie agréable d'un système
+#    de fichiers ordinaire (sur Talos, il faut un `extraVolumes`).
+apiServer:
+  # kubeadm v1beta4 (Kubernetes ≥ 1.31) : `extraArgs` est une LISTE de {name, value}.
+  # Sur les versions antérieures c'était une map — et sur Talos c'en est toujours une
+  # (cf. apiserver-oidc.talos.yaml). Même réglage, deux formes.
+  extraArgs:
+    # L'émetteur attendu. Doit valoir EXACTEMENT `config.issuer` de Dex et le hostname
+    # de son HTTPRoute — sinon « oidc: id token issued by a different provider ».
+    - name: oidc-issuer-url
+      value: https://dex.lab.example.io
+    # L'audience attendue : l'`id` du client statique déclaré dans dex/values.yaml.
+    - name: oidc-client-id
+      value: kubernetes
+    # Le claim qui devient l'identité Kubernetes. `email` et non `sub` : un UUID ne dit
+    # rien dans un `kubectl auth can-i --as=...` ni dans un audit log.
+    - name: oidc-username-claim
+      value: email
+    # Préfixes : ils isolent les identités OIDC de celles du cluster. Sans eux, un
+    # annuaire qui déclare le groupe `system:masters` obtient les pleins pouvoirs.
+    # Ils doivent correspondre aux sujets des ClusterRoleBinding de `rbac.yaml`.
+    - name: oidc-username-prefix
+      value: "oidc:"
+    - name: oidc-groups-claim
+      value: groups
+    - name: oidc-groups-prefix
+      value: "oidc:"

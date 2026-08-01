@@ -130,3 +130,5 @@ echo
 echo "  /!\\ Le compte 'keycloak-initial-admin' est un admin COMPLET, en clair dans un"
 echo "      Secret. Crée ton propre admin dans le realm master, puis supprime-le :"
 echo "      kubectl -n ${NS} delete secret keycloak-initial-admin"
+echo
+echo "  Suite logique : ./install.sh ${K8S_DISTRO} dex   (connexion kubectl par OIDC)"
