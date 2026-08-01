@@ -1,27 +1,28 @@
-# alloy-values.yaml — Grafana Alloy : collecte les logs des pods et les pousse vers Loki.
+# alloy-values.yaml — Grafana Alloy: collects the pods' logs and pushes them to Loki.
 #
-# Alloy remplace Promtail (déprécié). Mode **DaemonSet lisant les fichiers /var/log/pods**
-# (comme Promtail), PAS le streaming via l'API Kubernetes.
+# Alloy replaces Promtail (deprecated). **DaemonSet reading the /var/log/pods files** mode
+# (like Promtail), NOT streaming through the Kubernetes API.
 #
-# POURQUOI le mode fichier : lire les logs via `loki.source.kubernetes` (API) fait transiter
-# TOUS les logs de pods à travers le kube-apiserver — charge énorme qui, sur ce lab, a
-# contribué à saturer les control-planes. En lisant directement /var/log/pods sur chaque
-# node (un DaemonSet, une part par node), l'apiserver n'est PAS sollicité pour les logs :
-# `discovery.kubernetes` ne fait qu'un watch léger de métadonnées pour étiqueter les lignes.
+# WHY the file mode: reading the logs through `loki.source.kubernetes` (the API) sends ALL pod
+# logs through the kube-apiserver — an enormous load which, on this lab, contributed to
+# saturating the control planes. By reading /var/log/pods directly on each node (a DaemonSet,
+# one share per node), the apiserver is NOT involved in the logs: `discovery.kubernetes` only
+# does a light metadata watch to label the lines.
 
 controller:
   type: daemonset
-  # Tolère tout → un Alloy sur CHAQUE node, y compris les control-planes (logs apiserver/etcd).
+  # Tolerates everything → one Alloy on EVERY node, control planes included (apiserver/etcd
+  # logs).
   tolerations:
     - operator: Exists
 
 alloy:
-  # Lit /var/log/pods (fichiers appartenant à root) → tourne en root dans ce ns privileged.
+  # Reads /var/log/pods (files owned by root) → runs as root in this privileged ns.
   securityContext:
     runAsUser: 0
     runAsGroup: 0
     runAsNonRoot: false
-  # Monte /var/log (hostPath) dans le conteneur → accès aux fichiers de log des pods.
+  # Mounts /var/log (hostPath) inside the container → access to the pods' log files.
   mounts:
     varlog: true
   resources:
@@ -32,12 +33,12 @@ alloy:
       memory: 256Mi
   configMap:
     content: |-
-      // 1. Découvre les pods (métadonnées seulement — watch léger, pas de logs via l'API).
+      // 1. Discover the pods (metadata only — a light watch, no logs through the API).
       discovery.kubernetes "pods" {
         role = "pod"
       }
 
-      // 2. Étiquette + construit le chemin du fichier de log de chaque conteneur.
+      // 2. Label + build the path of each container's log file.
       discovery.relabel "pod_logs" {
         targets = discovery.kubernetes.pods.targets
         rule {
@@ -56,14 +57,14 @@ alloy:
           source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
           target_label  = "app"
         }
-        // Chemin du fichier : /var/log/pods/<ns>_<pod>_<ID>/<container>/*.log
-        // On glob <ID> avec `*` car il DIFFÈRE selon le type de pod :
-        //   - pod normal      => <ID> = UID API (__meta_kubernetes_pod_uid)
-        //   - static/mirror pod (kube-apiserver, etcd, scheduler, controller-manager :
-        //     posés par kubeadm dans /etc/kubernetes/manifests, gérés par Talos sinon)
-        //     => <ID> = HASH de config du static pod, PAS l'UID API. Construire le chemin à
-        //     partir de l'UID raterait donc tous les logs du control-plane. On matche plutôt
-        //     par <ns>_<pod>_* (nom stable) pour couvrir les deux cas.
+        // File path: /var/log/pods/<ns>_<pod>_<ID>/<container>/*.log
+        // We glob <ID> with `*` because it DIFFERS depending on the kind of pod:
+        //   - ordinary pod       => <ID> = the API UID (__meta_kubernetes_pod_uid)
+        //   - static/mirror pod (kube-apiserver, etcd, scheduler, controller-manager: laid
+        //     down by kubeadm in /etc/kubernetes/manifests, managed by Talos otherwise)
+        //     => <ID> = the static pod's config HASH, NOT the API UID. Building the path from
+        //     the UID would therefore miss every control-plane log. So we match on
+        //     <ns>_<pod>_* (a stable name) to cover both cases.
         rule {
           source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_name", "__meta_kubernetes_pod_container_name"]
           separator     = "/"
@@ -74,12 +75,12 @@ alloy:
         }
       }
 
-      // 3. Ne suit QUE les fichiers présents sur ce node (les autres globs ne matchent rien).
+      // 3. Only tail the files present on this node (the other globs match nothing).
       local.file_match "pod_logs" {
         path_targets = discovery.relabel.pod_logs.output
       }
 
-      // 4. Lit les fichiers, puis parse le format CRI de containerd.
+      // 4. Read the files, then parse containerd's CRI format.
       loki.source.file "pod_logs" {
         targets    = local.file_match.pod_logs.targets
         forward_to = [loki.process.pod_logs.receiver]
@@ -89,7 +90,7 @@ alloy:
         forward_to = [loki.write.default.receiver]
       }
 
-      // 5. Pousse vers Loki (gateway du même namespace).
+      // 5. Push to Loki (the gateway of the same namespace).
       loki.write "default" {
         endpoint {
           url = "http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"

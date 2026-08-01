@@ -1,14 +1,13 @@
-# values.yaml — HashiCorp Vault en HA (intégré Raft) sur les labs Talos / kubeadm.
-# Chart hashicorp/vault 0.34.0 (Vault 2.0.3). Namespace: vault (aligné avec le VSO :
+# values.yaml — HashiCorp Vault in HA (integrated Raft) on the Talos / kubeadm labs.
+# hashicorp/vault chart 0.34.0 (Vault 2.0.3). Namespace: vault (aligned with VSO:
 # http://vault.vault.svc.cluster.local:8200).
 #
-# - Stockage : Raft intégré, 1 PVC Longhorn de 2Gi par réplica (RWO).
-# - TLS : terminé par Envoy Gateway (cert wildcard) → Vault écoute en HTTP en interne
-#   (tls_disable). Le VSO s'y connecte en http via le service ClusterIP.
-# - disable_mlock=true : sûr sur les deux labs (Talos n'a pas de swap ; kubeadm exige le swap
-#   coupé, et kubeadm/provision.sh le coupe puis le masque) et évite d'exiger IPC_LOCK.
-# - injector désactivé : on utilise le Vault Secrets Operator (VSO), pas les sidecars.
-
+# - Storage: integrated Raft, one 2Gi Longhorn PVC per replica (RWO).
+# - TLS: terminated by Envoy Gateway (wildcard cert) → Vault listens over HTTP internally
+#   (tls_disable). VSO connects to it over http through the ClusterIP service.
+# - disable_mlock=true: safe on both labs (Talos has no swap; kubeadm requires swap to be off,
+#   and kubeadm/provision.sh disables then masks it) and avoids requiring IPC_LOCK.
+# - injector disabled: we use the Vault Secrets Operator (VSO), not the sidecars.
 global:
   enabled: true
   tlsDisable: true
@@ -18,7 +17,7 @@ injector:
 
 ui:
   enabled: true
-  serviceType: ClusterIP          # exposition via HTTPRoute, pas de LoadBalancer
+  serviceType: ClusterIP          # exposed through an HTTPRoute, no LoadBalancer
 
 server:
   dataStorage:
@@ -36,7 +35,7 @@ server:
     limits:
       memory: 512Mi
 
-  # Répartit les 3 réplicas sur des nodes distincts (défaut du chart, explicité).
+  # Spreads the 3 replicas onto distinct nodes (the chart default, spelled out).
   affinity: |
     podAntiAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
