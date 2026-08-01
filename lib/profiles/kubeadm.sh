@@ -57,6 +57,13 @@ LOCAL_PATH_DIR="/opt/local-path-provisioner"
 # fine.
 LONGHORN_PREP_REQUIRED=false
 
+# --- Backup (velero/) ---------------------------------------------------------
+# Velero's node-agent hostPath on the kubelet's pod directory. On Debian the kubelet runs
+# directly on the host with the upstream root dir, so this is simply the default — the Talos
+# constraint that gives the variable its reason to exist ("only /var is writable") falls away
+# here. Kept, and identical, because the two profiles are meant to be read side by side.
+VELERO_POD_VOLUME_PATH="/var/lib/kubelet/pods"
+
 # --- Security / admission ----------------------------------------------------
 # No PodSecurity level enforced cluster-wide: the `privileged` labels put on namespaces unlock
 # nothing TODAY. We keep them because they document what the pods actually need, and because

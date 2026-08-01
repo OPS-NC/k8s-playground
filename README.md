@@ -323,7 +323,8 @@ bootstrapped cluster  (Talos lab or kubeadm lab — nodes NotReady, no CNI yet)
               │             true (default) → self-signed/   openssl, local CA
               │             false          → cert-manager/  Let's Encrypt DNS-01 Cloudflare
               │
-              └─ add-ons: storage → databases → identity → secrets → observability → security
+              └─ add-ons: storage → backup → databases → identity → secrets → observability
+                          → security
 ```
 
 That is exactly the order of `platform-up.sh` (`[1/4]` → `[4/4]`). Both TLS modes fill the
@@ -375,6 +376,8 @@ variable.
 | cert-manager | `jetstack/cert-manager` | `v1.21.1` | `platform-up.sh` | `CERT_MANAGER_VERSION` |
 | metrics-server | image `registry.k8s.io/…` | `v0.9.0` | `metric-server.yaml` | — |
 | Longhorn | `longhorn/longhorn` | `1.12.0` | `longhorn/longhorn-up.sh` | `LONGHORN_VERSION` |
+| Velero | `vmware-tanzu/velero` | `12.1.0` (app v1.18.1) | `velero/velero-up.sh` | `VELERO_VERSION` |
+| velero-plugin-for-aws | image `velero/velero-plugin-for-aws` | `v1.14.2` | `velero/velero-up.sh` | `VELERO_AWS_PLUGIN_VERSION` |
 | local-path-provisioner | image `rancher/…` | `v0.0.36` | `local-path-storage/local-path-storage.yaml` | — |
 | CloudNativePG | `cnpg/cloudnative-pg` | `0.29.0` (app 1.30.0) | `cloudnative-pg/cloudnative-pg-up.sh` | `CNPG_VERSION` |
 | Keycloak | `keycloak-k8s-resources` (operator **and** server) | `26.7.0` | `keycloak/keycloak-up.sh` | `KEYCLOAK_VERSION` |
@@ -423,6 +426,12 @@ variable.
 | [`local-path-storage/`](local-path-storage/README.md) | dynamic local storage (hostPath; **path differs per distro**) | `./install.sh <distro> local-path` | `local-path` |
 | [`minio-s3/`](minio-s3/README.md) | S3 object storage + console, **1 node** | `./install.sh <distro> minio` | — |
 | [`minio-s3/cluster/`](minio-s3/cluster/README.md) | **distributed** MinIO, 4 nodes (EC:2) — the backup target | `./install.sh <distro> minio-cluster` | — |
+
+### 🗃️ Backup
+
+| Directory | Purpose | Command | Prerequisites |
+|---|---|---|---|
+| [`velero/`](velero/README.md) | backup/restore of the **objects** *and* of the **PV data** (Longhorn included, through FSB/kopia) into MinIO | `./install.sh <distro> velero` | a MinIO (`minio-cluster` or `minio`) |
 
 ### 🐘 Databases
 

@@ -68,6 +68,15 @@ LOCAL_PATH_DIR="/var/local-path-provisioner"
 #      Talos kubelet runs in a container with no bidirectional mount propagation.
 LONGHORN_PREP_REQUIRED=true
 
+# --- Backup (velero/) ---------------------------------------------------------
+# Velero's node-agent reads the volume data where the KUBELET has already mounted it, through a
+# hostPath on its pod directory. On Talos that path deserves a variable rather than the chart
+# default: `/` and `/usr` are read-only, so a hostPath anywhere else would be a dead end — and
+# it works only because the kubelet root dir sits under `/var`, the one writable filesystem.
+# Same value as kubeadm today; the variable is what makes that a CHECKED fact instead of a
+# lucky coincidence (an installer image that moved the kubelet root would only need this line).
+VELERO_POD_VOLUME_PATH="/var/lib/kubelet/pods"
+
 # --- Security / admission ----------------------------------------------------
 # `baseline` enforced cluster-wide: any privileged pod (hostNetwork, hostPath, hostPID) needs
 # a namespace labelled `pod-security.kubernetes.io/enforce: privileged`.
