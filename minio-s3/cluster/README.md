@@ -9,7 +9,8 @@
 > drives → object storage survives node losses **without Longhorn**, exactly the way
 > CloudNativePG handles Postgres replication itself.
 
-> ⚠️ **BLOCKING prerequisite: 4 `Ready` workers.** The repo default (`lab.env.example`) is
+> ⚠️ **BLOCKING prerequisite: 4 `Ready` workers.** The default shipped by both labs (their
+> `lab.env.example`) is
 > `WORKERS=3` → with that topology this component **cannot start at all**. See Prerequisites.
 
 ## 🎯 Purpose
@@ -47,7 +48,7 @@ Inside the cluster: `http://minio.minio-cluster.svc.cluster.local:9000`.
 | DNS `minio-cluster` + `minio-cluster-console` → `192.168.56.200` | to reach the Envoy VIP | `getent hosts minio-cluster.lab.example.io` |
 
 > ⚠️ **Set `WORKERS=4` (or more) in `lab.env` before building the cluster.**
-> `lab.env.example` ships `WORKERS=3`, and `minio-cluster-up.sh` only **warns** (a plain
+> The lab's `lab.env.example` ships `WORKERS=3`, and `minio-cluster-up.sh` only **warns** (a plain
 > `echo`, not an `exit`) when there are fewer than 4 workers. It applies the manifest anyway:
 > the 4th pod stays **`Pending` forever** (strict anti-affinity, no eligible node left), so the
 > `rollout status --timeout=300s` **fails after 5 minutes** and the deployment starts at best
