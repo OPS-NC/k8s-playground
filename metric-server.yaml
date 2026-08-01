@@ -1,13 +1,13 @@
 # metric-server.yaml — metrics-server v0.9.0 (API `metrics.k8s.io` => `kubectl top`,
-# et la source des métriques d'un HorizontalPodAutoscaler).
+# and the metrics source of a HorizontalPodAutoscaler).
 #
-# Basé sur le manifeste `components.yaml` amont :
+# Based on the upstream `components.yaml` manifest:
 #   https://github.com/kubernetes-sigs/metrics-server/releases
-# Un seul écart assumé par rapport à l'amont : `--kubelet-insecure-tls` et l'ordre des
-# `--kubelet-preferred-address-types` — les deux sont justifiés en commentaire sur les
-# arguments eux-mêmes (cf. le Deployment plus bas).
+# One deliberate deviation from upstream: `--kubelet-insecure-tls` and the order of
+# `--kubelet-preferred-address-types` — both are justified in a comment on the arguments
+# themselves (see the Deployment further down).
 #
-# Appliqué par `platform-up.sh` (étape [3/4]) ; relançable seul :
+# Applied by `platform-up.sh` (step [3/4]); runnable on its own:
 #   kubectl apply -f metric-server.yaml
 ---
 apiVersion: v1
@@ -147,25 +147,25 @@ spec:
       - args:
         - --cert-dir=/tmp
         - --secure-port=10250
-        # ⚠️ Sur LES DEUX distributions du lab, le certificat « serving » du kubelet est
-        # AUTO-SIGNÉ par le kubelet lui-même (il n'est PAS signé par la CA du cluster)
+        # ⚠️ On BOTH distributions of the lab, the kubelet's "serving" certificate is
+        # SELF-SIGNED by the kubelet itself (it is NOT signed by the cluster CA)
         # => sans ce drapeau, metrics-server échoue sur `x509: certificate signed by
         # unknown authority` et `kubectl top` renvoie « metrics not available ».
-        # Alternative propre, HORS PÉRIMÈTRE de ce lab (`serverTLSBootstrap: true` sur
+        # The clean alternative, OUT OF SCOPE for this lab (`serverTLSBootstrap: true` on
         # kubeadm, `machine.kubelet.extraArgs.rotate-server-certificates` sur Talos) :
-        # dans la KubeletConfiguration (le kubelet demande alors un certificat au
-        # signataire `kubernetes.io/kubelet-serving`) + un approbateur qui valide les
-        # CSR — kube-controller-manager ne les approuve JAMAIS automatiquement, il
-        # faudrait donc soit un `kubectl certificate approve` après chaque join, soit
-        # un contrôleur tiers. Pour un lab jetable, --kubelet-insecure-tls suffit :
-        # le trafic reste chiffré, seule l'identité du kubelet n'est pas vérifiée, et
-        # tout vit sur un réseau host-only isolé.
+        # in the KubeletConfiguration (the kubelet then requests a certificate from the
+        # `kubernetes.io/kubelet-serving` signer) + an approver that validates the CSRs —
+        # kube-controller-manager NEVER approves them automatically, so it would take
+        # either a `kubectl certificate approve` after every join, or a third-party
+        # controller. For a throwaway lab, --kubelet-insecure-tls is enough: the traffic
+        # stays encrypted, only the kubelet's identity is unverified, and everything lives
+        # on an isolated host-only network.
         - --kubelet-insecure-tls
-        # L'ORDRE COMPTE : `InternalIP` d'abord. Les nodes sont enregistrés avec leur IP
-        # host-only (`node-ip` posé par kubeadm au bootstrap ; nodeIP publiée par Talos),
-        # qui est toujours joignable. Le `Hostname` d'une VM Vagrant, lui, ne résout que si
-        # /etc/hosts a été rempli sur CHAQUE node — un pari qu'on ne prend pas.
-        # `ExternalIP` en dernier : aucun node n'en a ici.
+        # ORDER MATTERS: `InternalIP` first. The nodes are registered with their host-only
+        # IP (`node-ip` set by kubeadm at bootstrap; nodeIP published by Talos), which is
+        # always reachable. A Vagrant VM's `Hostname`, on the other hand, only resolves if
+        # /etc/hosts was filled in on EVERY node — a bet we do not take.
+        # `ExternalIP` last: no node has one here.
         - --kubelet-preferred-address-types=InternalIP,Hostname,ExternalIP
         - --kubelet-use-node-status-port
         - --metric-resolution=15s

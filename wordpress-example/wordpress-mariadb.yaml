@@ -1,12 +1,12 @@
-# WordPress + MariaDB — démo de stockage persistant Longhorn, exposée via Envoy Gateway.
+# WordPress + MariaDB — a Longhorn persistent-storage demo, exposed through Envoy Gateway.
 #
 # - 2 volumes Longhorn de 2Gi (RWO) : /var/lib/mysql (MariaDB) et /var/www/html (WordPress).
-# - Stratégie Recreate (volumes RWO mono-attach : l'ancien pod libère avant le nouveau).
-# - Exposé en HTTPS sous wordpress.lab.example.io (cert wildcard *.lab.example.io).
-#   Domaine NEUTRE (dépôt public), appliqué À LA MAIN : édite le hostname de l'HTTPRoute ET
+# - Recreate strategy (single-attach RWO volumes: the old pod releases before the new one).
+# - Exposed over HTTPS at wordpress.lab.example.io (the *.lab.example.io wildcard cert).
+#   NEUTRAL domain (public repository), applied BY HAND: edit the HTTPRoute hostname AND
 #   WP_HOME/WP_SITEURL, ou `sed 's/lab\.example\.io/<ton-domaine>/g' … | kubectl apply -f -`.
 #
-# ⚠️ Mots de passe d'exemple (lab). À NE PAS réutiliser tel quel hors démo.
+# ⚠️ Example passwords (lab). DO NOT reuse them as they are outside a demo.
 ---
 apiVersion: v1
 kind: Namespace
@@ -63,7 +63,7 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/mysql
-              subPath: mysql          # sous-dossier propre (évite le lost+found du volume)
+              subPath: mysql          # its own subfolder (avoids the volume's lost+found)
           readinessProbe:
             exec: { command: ["healthcheck.sh", "--connect", "--innodb_initialized"] }
             initialDelaySeconds: 15
@@ -126,8 +126,8 @@ spec:
             - { name: WORDPRESS_DB_USER, value: "wordpress" }
             - name: WORDPRESS_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: mariadb, key: MARIADB_PASSWORD } }
-            # TLS terminé par Envoy : on force la détection HTTPS via X-Forwarded-Proto
-            # et on fige l'URL du site (sinon boucles de redirection / URLs en http).
+            # TLS terminated by Envoy: we force HTTPS detection through X-Forwarded-Proto
+            # and pin the site URL (otherwise redirect loops / http URLs).
             - name: WORDPRESS_CONFIG_EXTRA
               value: |
                 define('WP_HOME', 'https://wordpress.lab.example.io');
@@ -173,7 +173,7 @@ spec:
   parentRefs:
     - name: main-gateway
       namespace: envoy-gateway-system
-      sectionName: https           # écouteur TLS :443 (cert wildcard cert-manager)
+      sectionName: https           # TLS :443 listener (cert-manager wildcard cert)
   hostnames:
     - wordpress.lab.example.io
   rules:

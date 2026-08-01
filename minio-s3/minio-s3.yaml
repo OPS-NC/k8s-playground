@@ -1,18 +1,20 @@
 # minio-s3.yaml — MinIO (stockage objet compatible S3) en standalone (labs Talos / kubeadm).
 #
-# Image = FORK PIGSTY (pgsty/minio) — PAS le chart Bitnami (images gratuites figées sur
-# `bitnamilegacy`), et PAS l'upstream minio/minio (dépôt ARCHIVÉ « no longer maintained » en
-# fév. 2026, console amputée depuis mi-2025). Pigsty rebuild le serveur MinIO ET restaure la
-# CONSOLE D'ADMIN complète → on a À LA FOIS le récent ET l'admin UI.
-# Stockage : 1 PVC local-path (node-local, sans Longhorn). Exposé en HTTPS via main-gateway :
+# Image = the PIGSTY FORK (pgsty/minio) — NOT the Bitnami chart (its free images are frozen on
+# `bitnamilegacy`), and NOT upstream minio/minio (an ARCHIVED repository, "no longer
+# maintained" as of Feb 2026, with an amputated console since mid-2025). Pigsty rebuilds the
+# MinIO server AND restores the full ADMIN CONSOLE → we get BOTH the recent build AND the
+# admin UI.
+# Storage: 1 local-path PVC (node-local, no Longhorn). Exposed over HTTPS through
+# main-gateway:
 #   - API S3   : https://minio.lab.example.io          (port 9000)
-#   - Console  : https://minio-console.lab.example.io  (port 9001, admin complète)
+#   - Console : https://minio-console.lab.example.io  (port 9001, full admin)
 #
-# Alternatives (README) : upstream épinglé RELEASE.2025-04-22 (dernière console admin officielle),
-# autres forks console (huncrys, georgmangold), ou l'édition payante AIStor.
+# Alternatives (README): upstream pinned to RELEASE.2025-04-22 (the last official admin
+# console), other console forks (huncrys, georgmangold), or the paid AIStor edition.
 #
-# Le Secret `minio-creds` (root user/password) est créé par minio-up.sh (hors de ce manifeste,
-# pour ne pas committer d'identifiants).
+# The `minio-creds` Secret (root user/password) is created by minio-up.sh (outside this
+# manifest, so that no credential is ever committed).
 ---
 apiVersion: v1
 kind: Namespace
@@ -40,7 +42,7 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate            # RWO local-path : pas deux pods sur le même volume
+    type: Recreate            # RWO local-path: never two pods on the same volume
   selector:
     matchLabels: { app: minio }
   template:
@@ -53,7 +55,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: minio
-          image: docker.io/pgsty/minio:RELEASE.2026-06-18T00-00-00Z   # fork Pigsty : récent + console admin
+          image: docker.io/pgsty/minio:RELEASE.2026-06-18T00-00-00Z   # Pigsty fork: recent + admin console
           args:
             - server
             - /data
@@ -64,7 +66,7 @@ spec:
               valueFrom: { secretKeyRef: { name: minio-creds, key: root-user } }
             - name: MINIO_ROOT_PASSWORD
               valueFrom: { secretKeyRef: { name: minio-creds, key: root-password } }
-            # Redirection de la console derrière le reverse-proxy (hostname distinct de l'API).
+            # Console redirect behind the reverse proxy (a hostname distinct from the API).
             - name: MINIO_BROWSER_REDIRECT_URL
               value: https://minio-console.lab.example.io
           ports:
