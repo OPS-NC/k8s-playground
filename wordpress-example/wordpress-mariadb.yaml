@@ -55,7 +55,7 @@ spec:
     spec:
       containers:
         - name: mariadb
-          image: mariadb:11.4
+          image: mariadb:11.8
           envFrom:
             - secretRef: { name: mariadb }
           ports:
@@ -119,7 +119,7 @@ spec:
     spec:
       containers:
         - name: wordpress
-          image: wordpress:6.7-php8.3-apache
+          image: wordpress:7.0-php8.3-apache
           env:
             - { name: WORDPRESS_DB_HOST, value: "mariadb:3306" }
             - { name: WORDPRESS_DB_NAME, value: "wordpress" }

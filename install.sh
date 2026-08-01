@@ -38,6 +38,7 @@ CATALOGUE=(
   "keycloak|keycloak/keycloak-up.sh|Keycloak par son opérateur + realm 'lab' (IdP OIDC)"
   "dex|dex/dex-up.sh|Dex devant Keycloak : connexion kubectl par OIDC (oidc-login)"
   "vault|vault-cluster/vault-up.sh|HashiCorp Vault HA (Raft) + UI HTTPS"
+  "vso|vault-secret-operator/vso-up.sh|Vault Secrets Operator (l'opérateur SEUL, cf. son README)"
   "observability|observability/observability-up.sh|kube-prometheus-stack + Loki + Alloy"
   "npd|node-problem-detector/node-problem-detector-up.sh|node-problem-detector (santé des nodes)"
   "kyverno|kyverno/kyverno-up.sh|Kyverno + Policy Reporter (policies en Audit)"

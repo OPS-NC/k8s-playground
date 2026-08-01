@@ -388,7 +388,7 @@ d'environnement.
 | Dex | `dex/dex` | `0.24.1` (app v2.44.0) | `dex/dex-up.sh` | `DEX_VERSION` |
 | kubelogin | binaire hôte `kubectl oidc-login` | `v1.36.3` (référence) | `dex/LISEZ-MOI.md` | — |
 | Vault | `hashicorp/vault` | `0.34.0` | `vault-cluster/vault-up.sh` | `VAULT_CHART_VERSION` |
-| Vault Secrets Operator | `hashicorp/vault-secrets-operator` | `1.5.0` | `vault-secret-operator/` (doc) | — |
+| Vault Secrets Operator | `hashicorp/vault-secrets-operator` | `1.5.0` | `vault-secret-operator/vso-up.sh` | `VSO_VERSION` |
 | kube-prometheus-stack | `prometheus-community/…` | `88.0.1` (op. v0.93.0) | `observability/observability-up.sh` | `KPS_VERSION` |
 | Loki | `grafana/loki` | `7.2.0` (app 3.6.11) | idem | `LOKI_VERSION` |
 | Alloy | `grafana/alloy` | `1.11.0` (app v1.18.0) | idem | `ALLOY_VERSION` |
@@ -449,7 +449,7 @@ d'environnement.
 | Dossier | Rôle | Commande | Prérequis |
 |---|---|---|---|
 | [`vault-cluster/`](vault-cluster/LISEZ-MOI.md) | Vault HA (Raft) 3 nœuds, UI/API HTTPS | `./install.sh <distro> vault` | SC `longhorn` |
-| [`vault-secret-operator/`](vault-secret-operator/LISEZ-MOI.md) | secrets Vault → `Secret` K8s (KV statique, DB dynamique, PKI) | Helm + `vault/*.sh` | Vault descellé |
+| [`vault-secret-operator/`](vault-secret-operator/LISEZ-MOI.md) | secrets Vault → `Secret` K8s (KV statique, DB dynamique, PKI) | `./install.sh <distro> vso` (l'opérateur **seul**) + `vault/*.sh` | Vault descellé |
 
 ### 📈 Observabilité
 

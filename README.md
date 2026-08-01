@@ -378,7 +378,7 @@ variable.
 | Dex | `dex/dex` | `0.24.1` (app v2.44.0) | `dex/dex-up.sh` | `DEX_VERSION` |
 | kubelogin | host binary `kubectl oidc-login` | `v1.36.3` (reference) | `dex/README.md` | — |
 | Vault | `hashicorp/vault` | `0.34.0` | `vault-cluster/vault-up.sh` | `VAULT_CHART_VERSION` |
-| Vault Secrets Operator | `hashicorp/vault-secrets-operator` | `1.5.0` | `vault-secret-operator/` (docs) | — |
+| Vault Secrets Operator | `hashicorp/vault-secrets-operator` | `1.5.0` | `vault-secret-operator/vso-up.sh` | `VSO_VERSION` |
 | kube-prometheus-stack | `prometheus-community/…` | `88.0.1` (op. v0.93.0) | `observability/observability-up.sh` | `KPS_VERSION` |
 | Loki | `grafana/loki` | `7.2.0` (app 3.6.11) | idem | `LOKI_VERSION` |
 | Alloy | `grafana/alloy` | `1.11.0` (app v1.18.0) | idem | `ALLOY_VERSION` |
@@ -438,7 +438,7 @@ variable.
 | Directory | Purpose | Command | Prerequisites |
 |---|---|---|---|
 | [`vault-cluster/`](vault-cluster/README.md) | Vault HA (Raft), 3 nodes, HTTPS UI/API | `./install.sh <distro> vault` | SC `longhorn` |
-| [`vault-secret-operator/`](vault-secret-operator/README.md) | Vault secrets → native K8s `Secret`s (static KV, dynamic DB, PKI) | Helm + `vault/*.sh` | unsealed Vault |
+| [`vault-secret-operator/`](vault-secret-operator/README.md) | Vault secrets → native K8s `Secret`s (static KV, dynamic DB, PKI) | `./install.sh <distro> vso` (operator **only**) + `vault/*.sh` | unsealed Vault |
 
 ### 📈 Observability
 

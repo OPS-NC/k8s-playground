@@ -123,8 +123,8 @@ kubectl delete ns wordpress          # ⚠️ supprime aussi les PVC (donc les d
 | `Namespace wordpress-test` | isole la démo |
 | `Secret mariadb` | identifiants DB — **mots de passe d'exemple en clair dans le manifeste** (cf. ⚠️ Pièges) |
 | `PVC mariadb-data` / `wordpress-data` | **2Gi Longhorn** chacun, `ReadWriteOnce` |
-| `Deployment mariadb` (`mariadb:11.4`) | DB, `strategy: Recreate`, volume monté en `subPath: mysql`, sondes `healthcheck.sh` |
-| `Deployment wordpress` (`wordpress:6.7-php8.3-apache`) | front, `Recreate`, `subPath: wp`, sonde sur `/wp-login.php` |
+| `Deployment mariadb` (`mariadb:11.8`) | DB, `strategy: Recreate`, volume monté en `subPath: mysql`, sondes `healthcheck.sh` |
+| `Deployment wordpress` (`wordpress:7.0-php8.3-apache`) | front, `Recreate`, `subPath: wp`, sonde sur `/wp-login.php` |
 | `Service mariadb` / `wordpress` | ClusterIP (3306 / 80) |
 | `HTTPRoute wordpress` | `wordpress.lab.example.io` → `wordpress:80`, `sectionName: https` de `main-gateway` |
 
@@ -180,7 +180,7 @@ voit les deux volumes se détacher puis se rattacher — et sur quel node ils so
 - **Le domaine est figé en dur** dans `WORDPRESS_CONFIG_EXTRA` (`WP_HOME`/`WP_SITEURL`) **et**
   dans l'`HTTPRoute`. Si tu changes de domaine, il faut modifier les deux — sinon WordPress
   redirige vers l'ancien nom.
-- **`wordpress:6.7-php8.3-apache` et `mariadb:11.4` sont des tags de série**, pas des digests :
+- **`wordpress:7.0-php8.3-apache` et `mariadb:11.8` sont des tags de série**, pas des digests :
   le contenu peut bouger sous le même tag. C'est suffisant pour un lab, insuffisant pour de la
   reproductibilité stricte.
 

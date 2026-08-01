@@ -89,19 +89,32 @@ export VAULT_TOKEN=<root-token>                                  # cf. ../vault-
 ./vault-secret-operator/vault/lab-kv.sh
 
 # 2. L'opérateur (chart épinglé en 1.5.0)
+./install.sh <distro> vso                # ou ./vault-secret-operator/vso-up.sh <distro>
+
+# 3. Les CR côté cluster                                            -> voir k8s/LISEZ-MOI.md
+kubectl apply -f vault-secret-operator/k8s/nginx-test-vault/nginx-test-vault.yaml
+```
+
+Chart **1.5.0** = app version **1.5.0**.
+
+> ℹ️ **`vso-up.sh` pose l'étape 2 et rien d'autre**, volontairement. L'étape 1 exige un
+> `VAULT_TOKEN` d'admin — un secret qui n'a rien à faire dans un script que `install.sh all`
+> enchaîne en boucle — et l'étape 3 est inerte tant que l'étape 1 n'a pas créé le role
+> correspondant : VSO se connecte, Vault refuse, et le `Secret` n'est jamais rempli.
+> L'opérateur seul est inoffensif : il attend des CR.
+
+<details>
+<summary>Ce que lance <code>vso-up.sh</code>, en entier</summary>
+
+```bash
 helm repo add hashicorp https://helm.releases.hashicorp.com && helm repo update
 helm upgrade --install vault-secrets-operator hashicorp/vault-secrets-operator \
   --namespace vault-secrets-operator --create-namespace \
   --version 1.5.0 \
   -f vault-secret-operator/values.yaml
 kubectl -n vault-secrets-operator rollout status deploy/vault-secrets-operator-controller-manager
-
-# 3. Les CR côté cluster                                            -> voir k8s/LISEZ-MOI.md
-kubectl apply -f vault-secret-operator/k8s/nginx-test-vault/nginx-test-vault.yaml
 ```
-
-Chart **1.5.0** = app version **1.5.0**. Pas de `*-up.sh` ici : les deux moitiés s'installent
-séparément et dans cet ordre.
+</details>
 
 ## 🧬 Talos vs kubeadm
 

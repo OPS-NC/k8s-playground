@@ -102,7 +102,7 @@ spec:
       serviceAccountName: pg-rotate
       containers:
         - name: alpine
-          image: alpine:3.20
+          image: alpine:3.23
           # Au démarrage : log la DSN (mot de passe masqué) pour prouver l'injection, puis dort.
           command:
             - sh

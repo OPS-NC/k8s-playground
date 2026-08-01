@@ -162,7 +162,7 @@ kubectl -n demo logs deploy/vso-demo --tail=10
 | `20-dynamic-db.yaml` | `VaultDynamicSecret` | `mount: db`, `path: creds/demo-app`, `renewalPercent: 67`, `revoke: true` → Secret `dynamic-db` |
 | `30-pki-tls.yaml` | `VaultPKISecret` | `mount: pki`, `role: demo`, CN `demo-app.lab.example.io` → Secret `pki-tls` (`tls.crt`/`tls.key`) |
 | `40-secrettransformation.yaml` | `SecretTransformation` + `VaultStaticSecret` | transformation `app-env` (`DATABASE_URL`, `APP_PASSWORD`, `excludeRaw: true`) + le CR `static-kv-templated` qui l'utilise |
-| `50-demo-deployment.yaml` | `Deployment` | `busybox:1.36` : `envFrom` sur `static-kv`, `env` clé par clé sur `dynamic-db`, volume monté depuis `pki-tls` |
+| `50-demo-deployment.yaml` | `Deployment` | `busybox:1.38` : `envFrom` sur `static-kv`, `env` clé par clé sur `dynamic-db`, volume monté depuis `pki-tls` |
 
 ### `nginx-test-vault/` — secret KV du lab → variables d'env → rollout
 
@@ -174,7 +174,7 @@ La boucle complète, la plus simple à observer. Objets créés (tous dans le ns
 | `Namespace` + `ServiceAccount nginx-test-vault` | l'identité attendue par le role Vault du même nom |
 | `VaultAuth nginx-test-vault` | mount `kubernetes`, role `nginx-test-vault`, `audiences: [vault]` |
 | `VaultStaticSecret nginx-test-vault-config` | `type: kv-v2`, `mount: lab-kv`, `path: nginx-test-vault/config`, `refreshAfter: 30s`, `hmacSecretData: true` (détecte la dérive sans logguer les valeurs), `rolloutRestartTargets` → le Deployment |
-| `Deployment nginx-test-vault` | `nginx:1.27-alpine`, 2 réplicas, `envFrom` sur le Secret → `APP_GREETING` / `APP_COLOR` / `APP_SECRET_TOKEN` |
+| `Deployment nginx-test-vault` | `nginx:1.30-alpine`, 2 réplicas, `envFrom` sur le Secret → `APP_GREETING` / `APP_COLOR` / `APP_SECRET_TOKEN` |
 
 ### `pg-dynamic-rotate/` — mot de passe PostgreSQL roté par Vault
 
@@ -188,7 +188,7 @@ le scénario complet (prérequis PostgreSQL inclus) dans `../LISEZ-MOI.md`.
 | `VaultAuth pg-rotate` | mount `kubernetes`, role `pg-rotate-demo`, `audiences: [vault]` |
 | `SecretTransformation pg-rotate-dsn` | assemble `DATABASE_URL` + `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD` |
 | `VaultDynamicSecret pg-rotate` | `mount: database`, `path: static-creds/vault-rotate`, `allowStaticCreds: true` ; `excludes: [".*"]` pour ne garder **que** les clés templatées → Secret `pg-rotate-creds` ; `rolloutRestartTargets` → le Deployment |
-| `Deployment pg-rotate-demo` | `alpine:3.20`, `envFrom` sur `pg-rotate-creds` : la DSN arrive dans ses variables d'env |
+| `Deployment pg-rotate-demo` | `alpine:3.23`, `envFrom` sur `pg-rotate-creds` : la DSN arrive dans ses variables d'env |
 
 ## ✅ Vérifier
 
