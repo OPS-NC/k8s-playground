@@ -8,11 +8,12 @@
 > applicative (CNI, Gateway API, stockage, secrets, observabilité, sécurité) était
 > **dupliquée**, dans `Vagrant-Talos/_k8s/` puis encore dans `Vagrant-KubeADM/_k8s/`. Elle vit
 > maintenant ici, **une seule fois** — et les deux labs montent *ce* dépôt à ce même
-> emplacement `_k8s/`, en **sous-module git**. La distribution cible devient un **argument** :
+> emplacement `_k8s/`, en **sous-module git**. Monté ainsi, le lab **et** sa distribution sont
+> trouvés tout seuls — pas d'argument, pas de variable d'environnement, pas de `lab.env` ici :
 >
 > ```bash
-> ./_k8s/install.sh talos platform     # depuis la racine du lab Talos   (sous-module)
-> ./_k8s/install.sh kubeadm platform   # depuis la racine du lab kubeadm
+> ./_k8s/platform-up.sh                # depuis la racine de l'un ou l'autre lab (sous-module)
+> ./_k8s/install.sh platform           # la même chose, par le point d'entrée
 > ./install.sh kubeadm platform        # depuis la racine de ce dépôt    (dépôts voisins)
 > ```
 
@@ -34,18 +35,30 @@ dépôt y est monté en sous-module, sur `_k8s/`.
 # 1. Le lab — sous-module compris (jumeau Talos : OPS-NC/Vagrant-Talos)
 git clone --recurse-submodules https://github.com/OPS-NC/Vagrant-kubeadm.git
 cd Vagrant-kubeadm
-cp lab.env.example lab.env           # topologie, domaine, mode TLS, CNI
+cp lab.env.example lab.env               # le modèle du LAB : topologie, domaine, TLS, CNI
 vagrant up && ./kubeadm/cluster-up.sh    # les nodes sont NotReady : pas encore de CNI
 
-# 2. Dire où est le lab, puis poser la plateforme de base
-export KUBECONFIG="$PWD/kubeconfig"
-export LAB_DIR="$PWD"                # ⚠️ OBLIGATOIRE en sous-module — cf. plus bas
-./_k8s/install.sh kubeadm platform   # CNI → Envoy Gateway → metrics-server → wildcard TLS
+# 2. Poser la plateforme de base — rien à déclarer
+./_k8s/platform-up.sh                # CNI → Envoy Gateway → metrics-server → wildcard TLS
 
 # 3. Les addons, à la carte
-./_k8s/install.sh kubeadm longhorn vault argocd
-./_k8s/install.sh kubeadm list       # le catalogue complet
-./_k8s/install.sh kubeadm all        # plateforme + tous les addons, dans le bon ordre
+./_k8s/install.sh longhorn vault argocd
+./_k8s/install.sh list               # le catalogue complet
+./_k8s/install.sh all                # plateforme + tous les addons, dans le bon ordre
+```
+
+> 💡 **Rien à déclarer, et c'est tout l'intérêt.** Depuis la racine du lab, ce dépôt est
+> `<lab>/_k8s` : le lab est son **parent**, reconnu à son `Vagrantfile`, et la distribution se
+> lit sur la structure de ce lab — `kubeadm/cluster-up.sh` ici, `talos/cluster-up.sh` chez le
+> jumeau Talos. `LAB_DIR` n'est plus nécessaire, l'argument `talos`/`kubeadm` non plus.
+> `KUBECONFIG` est dérivé de la même façon (`<lab>/kubeconfig`) ; ne l'exporte que pour **tes
+> propres** appels `kubectl`, pas pour les scripts.
+
+Passer la distribution explicitement reste possible, et reste prioritaire — utile pour être sûr
+de ce qu'on lance, ou en disposition voisine ci-dessous :
+
+```bash
+./_k8s/install.sh kubeadm platform
 ```
 
 <details>
@@ -56,18 +69,20 @@ cd ../Vagrant-Talos    && ./talos/cluster-up.sh        # ou
 cd ../Vagrant-KubeADM  && ./kubeadm/cluster-up.sh
 
 cd ../k8s-playground                 # ce dépôt, voisin du lab
-./install.sh talos platform          # lab.env / _out/ trouvés tout seuls — pas de LAB_DIR
+./install.sh talos platform          # ici la distribution vaut la peine d'être passée (cf. plus bas)
 ```
 
-Ici le dépôt du lab est un cran au-dessus, à côté de celui-ci, et les scripts le trouvent seuls
-(règle 3 plus bas) : `LAB_DIR` est donc facultatif. C'est la **seule** différence entre les
-deux dispositions.
+Ici le dépôt du lab est **à côté** de celui-ci — pas au-dessus — donc la règle du
+parent-`Vagrantfile` ne se déclenche pas et le lab n'est trouvé que par `LAB_REPO_NAME`
+(`../Vagrant-Talos`, `../Vagrant-KubeADM`), que pose le **profil de distribution**. La
+distribution doit donc venir d'ailleurs que du lab : passe-la en argument. C'est la **seule**
+différence entre les deux dispositions.
 </details>
 
-Chaque composant reste **lançable seul**, avec la distribution en argument :
+Chaque composant reste **lançable seul**, nu en disposition sous-module :
 
 ```bash
-./_k8s/longhorn/longhorn-up.sh kubeadm       # depuis la racine du lab  (sous-module)
+./_k8s/longhorn/longhorn-up.sh               # depuis la racine du lab  (sous-module)
 ./observability/observability-up.sh talos    # depuis la racine d'ici   (dépôts voisins)
 ```
 
@@ -86,8 +101,9 @@ comme la variante.
 | | **Sous-module** (recommandée) | **Dépôts voisins** (variante) |
 |---|---|---|
 | Sur le disque | `Vagrant-KubeADM/_k8s/` **est** ce dépôt | `Vagrant-KubeADM/` et `k8s-playground/` dans le même dossier parent |
-| Où l'on lance les scripts | depuis la racine du **lab** : `./_k8s/install.sh <distro> …` | depuis la racine de **ce** dépôt : `./install.sh <distro> …` |
-| `LAB_DIR` | **obligatoire** — `export LAB_DIR="$PWD"` depuis la racine du lab | facultatif : la règle 3 ci-dessous trouve `../<dépôt du lab>` toute seule |
+| Où l'on lance les scripts | depuis la racine du **lab** : `./_k8s/install.sh …` | depuis la racine de **ce** dépôt : `./install.sh <distro> …` |
+| `LAB_DIR` | **inutile** : le parent porte un `Vagrantfile` ⇒ règle 2 ci-dessous | **inutile** aussi : la règle 3 ci-dessous trouve `../<dépôt du lab>` toute seule |
+| Argument de distribution | **inutile** : lu sur la structure du lab | **à passer** : aucun lab n'est localisé avant le chargement du profil, il ne reste que le signal de dernier recours |
 | Version de la couche applicative | **épinglée** par le lab sur un commit ⇒ le lab est reproductible | celle qui traîne à côté, quelle qu'elle soit |
 | Comment l'obtenir | `git clone --recurse-submodules …`, ou `git submodule update --init --recursive` | un `git clone` par dépôt |
 | Comment la mettre à jour | `git submodule update --remote _k8s`, puis committer le pointeur déplacé | `git pull` ici |

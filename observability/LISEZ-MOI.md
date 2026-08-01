@@ -38,8 +38,9 @@
 | **Longhorn** + SC **`longhorn-r1`** (`../longhorn/longhorn-r1-storageclass.yaml`) | PVC de Prometheus (3Gi), Loki (3Gi), Grafana (1Gi) ; le script **s'arrête** sans elle | `kubectl get sc longhorn-r1` |
 | **CP à 4 Go** (`CP_MEM=4096` dans `lab.env`) | cette pile charge l'apiserver (scrapes + watches) | `vagrant ssh k8s-cp1 -c 'free -h'` |
 
-> ⚠️ **RAM des control-plane — `lab.env.example` livre `CP_MEM=3072`, ce qui NE SUFFIT PAS pour
-> cette pile.** Monte-le à **`CP_MEM=4096`** dans ton `lab.env` **avant** d'installer, puis
+> ⚠️ **RAM des control-plane — le `lab.env.example` du lab livre `CP_MEM=3072`, ce qui NE SUFFIT
+> PAS pour cette pile.** Monte-le à **`CP_MEM=4096`** dans le `lab.env` du lab **avant**
+> d'installer, puis
 > `vagrant reload` des CP **un par un**.
 >
 > Sur des CP à **3 Go**, empiler cette pile sur le reste du lab **sature etcd/apiserver**

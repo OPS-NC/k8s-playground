@@ -38,8 +38,8 @@
 | **Longhorn** + **`longhorn-r1`** SC (`../longhorn/longhorn-r1-storageclass.yaml`) | PVCs for Prometheus (3Gi), Loki (3Gi), Grafana (1Gi); the script **aborts** without it | `kubectl get sc longhorn-r1` |
 | **4 GB control planes** (`CP_MEM=4096` in `lab.env`) | this stack loads the apiserver (scrapes + watches) | `vagrant ssh k8s-cp1 -c 'free -h'` |
 
-> ⚠️ **Control-plane RAM — `lab.env.example` ships `CP_MEM=3072`, which is NOT enough for this
-> stack.** Raise it to **`CP_MEM=4096`** in your `lab.env` **before** installing, then
+> ⚠️ **Control-plane RAM — the lab's `lab.env.example` ships `CP_MEM=3072`, which is NOT enough
+> for this stack.** Raise it to **`CP_MEM=4096`** in the lab's `lab.env` **before** installing, then
 > `vagrant reload` the CPs **one at a time**.
 >
 > On **3 GB** CPs, stacking this pile on top of the rest of the lab **saturates etcd/apiserver**

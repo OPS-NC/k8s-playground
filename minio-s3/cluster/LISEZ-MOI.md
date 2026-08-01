@@ -9,7 +9,8 @@
 > drives → le stockage objet survit à la perte de nœuds **sans Longhorn**, exactement comme
 > CloudNativePG assure lui-même la réplication de Postgres.
 
-> ⚠️ **Prérequis BLOQUANT : 4 workers `Ready`.** Le défaut du dépôt (`lab.env.example`) est
+> ⚠️ **Prérequis BLOQUANT : 4 workers `Ready`.** Le défaut livré par les deux labs (leur
+> `lab.env.example`) est
 > `WORKERS=3` → avec cette topologie l'addon **ne peut pas démarrer du tout**. Voir Prérequis.
 
 ## 🎯 À quoi ça sert
@@ -47,7 +48,7 @@ En interne : `http://minio.minio-cluster.svc.cluster.local:9000`.
 | DNS `minio-cluster` + `minio-cluster-console` → `192.168.56.200` | atteindre le VIP Envoy | `getent hosts minio-cluster.lab.example.io` |
 
 > ⚠️ **Passer `WORKERS=4` (ou plus) dans `lab.env` avant de monter le cluster.**
-> `lab.env.example` livre `WORKERS=3`, et `minio-cluster-up.sh` ne fait qu'**avertir** (un
+> Le `lab.env.example` du lab livre `WORKERS=3`, et `minio-cluster-up.sh` ne fait qu'**avertir** (un
 > simple `echo`, pas un `exit`) s'il y a moins de 4 workers. Il applique quand même le
 > manifeste : le 4ᵉ pod reste **`Pending` pour toujours** (anti-affinité stricte, plus aucun node
 > éligible), donc le `rollout status --timeout=300s` **échoue au bout de 5 minutes** et le
