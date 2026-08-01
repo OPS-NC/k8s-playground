@@ -1,29 +1,30 @@
-# Gateway `main-gateway` AVEC écouteur HTTPS wildcard + intégration cert-manager.
+# The `main-gateway` Gateway WITH a wildcard HTTPS listener + cert-manager integration.
 #
-# À FUSIONNER dans envoy-gateway/Envoy-Proxy.yml (bloc Gateway), ou à appliquer tel
-# quel (il REMPLACE le Gateway existant — mêmes name/namespace).
+# TO BE MERGED into envoy-gateway/Envoy-Proxy.yml (the Gateway block), or applied as is (it
+# REPLACES the existing Gateway — same name/namespace).
 #
-# Mécanique (nécessite cert-manager installé avec config.enableGatewayAPI=true) :
-#   1. cert-manager voit l'annotation + l'écouteur TLS avec un certificateRefs.
-#   2. Il crée un Certificate pour *.lab.example.io (dnsNames déduits du `hostname`).
-#   3. Il le résout en DNS-01 Cloudflare et remplit le Secret `wildcard-lab-example-io-tls`.
-#   4. Envoy sert ce cert sur :443.
+# How it works (requires cert-manager installed with config.enableGatewayAPI=true):
+#   1. cert-manager sees the annotation + the TLS listener with a certificateRefs.
+#   2. It creates a Certificate for *.lab.example.io (dnsNames derived from the `hostname`).
+#   3. It solves it over Cloudflare DNS-01 and fills the `wildcard-lab-example-io-tls` Secret.
+#   4. Envoy serves that cert on :443.
 #
-# Le Secret et le Certificate sont créés dans le namespace du Gateway (ici `envoy-gateway-system`).
+# The Secret and the Certificate are created in the Gateway's namespace (here
+# `envoy-gateway-system`).
 #
-# Domaine NEUTRE (dépôt public) : `lab.example.io`. Le vrai Gateway du lab
-# (`../envoy-gateway/Envoy-Proxy.yml`) reçoit `LAB_DOMAIN` via platform-up.sh ; ce fichier-ci
-# est un EXEMPLE non appliqué — si tu t'en sers, substitue toi-même le hostname ET le nom du
-# Secret (`wildcard-<domaine-en-tirets>-tls`).
+# NEUTRAL domain (public repository): `lab.example.io`. The lab's real Gateway
+# (`../envoy-gateway/Envoy-Proxy.yml`) receives `LAB_DOMAIN` through platform-up.sh; THIS file
+# is an EXAMPLE that is never applied — if you use it, substitute the hostname AND the Secret
+# name (`wildcard-<dashed-domain>-tls`) yourself.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: main-gateway
   namespace: envoy-gateway-system
   annotations:
-    # letsencrypt-staging (défaut du lab) pour itérer, letsencrypt-prod pour un cert trusté.
-    # ⚠️ prod = 5 certificats/semaine max pour un même wildcard, et chaque `vagrant destroy`
-    # en brûle un (le wildcard ne vit que dans etcd). Cf. LAB_ACME_ISSUER dans lab.env.example.
+    # letsencrypt-staging (the lab default) to iterate, letsencrypt-prod for a trusted cert.
+    # ⚠️ prod = 5 certificates/week max for the same wildcard, and every `vagrant destroy`
+    # burns one (the wildcard only lives in etcd). See LAB_ACME_ISSUER in lab.env.example.
     cert-manager.io/cluster-issuer: letsencrypt-staging
 spec:
   gatewayClassName: envoy
@@ -42,7 +43,7 @@ spec:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: wildcard-lab-example-io-tls     # rempli automatiquement par cert-manager
+            name: wildcard-lab-example-io-tls     # filled automatically by cert-manager
       allowedRoutes:
         namespaces:
           from: All

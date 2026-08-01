@@ -1,12 +1,12 @@
-# Expose l'UI Longhorn via la Gateway API, en HTTPS, sous `longhorn.lab.example.io`.
-# Domaine NEUTRE (dépôt public) : ce fichier s'applique À LA MAIN, donc édite le hostname ou
-# passe par `sed 's/lab\.example\.io/<ton-domaine>/g' … | kubectl apply -f -`.
-# Cert = wildcard `*.lab.example.io` déjà porté par l'écouteur `https` de main-gateway
-# (cert-manager) — aucun nouveau Certificate nécessaire.
+# Exposes the Longhorn UI through the Gateway API, over HTTPS, at `longhorn.lab.example.io`.
+# NEUTRAL domain (public repository): this file is applied BY HAND, so edit the hostname or go
+# through `sed 's/lab\.example\.io/<your-domain>/g' … | kubectl apply -f -`.
+# Cert = the `*.lab.example.io` wildcard already carried by the `https` listener of
+# main-gateway (cert-manager) — no new Certificate needed.
 #
-# ⚠️ L'UI Longhorn n'a AUCUNE authentification native. Derrière ce Gateway elle est
-# accessible à quiconque atteint le VIP (via Tailscale). Pour la protéger, ajouter une
-# SecurityPolicy Envoy Gateway (Basic Auth / OIDC) — cf. README.
+# ⚠️ The Longhorn UI has NO built-in authentication. Behind this Gateway it is reachable by
+# anyone who can reach the VIP (through Tailscale). To protect it, add an Envoy Gateway
+# SecurityPolicy (Basic Auth / OIDC) — see the README.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -16,9 +16,9 @@ spec:
   parentRefs:
     - name: main-gateway
       namespace: envoy-gateway-system
-      sectionName: https           # écouteur TLS :443
+      sectionName: https           # TLS :443 listener
   hostnames:
-    - longhorn.lab.example.io     # matche le wildcard *.lab.example.io
+    - longhorn.lab.example.io     # matches the *.lab.example.io wildcard
   rules:
     - backendRefs:
         - name: longhorn-frontend

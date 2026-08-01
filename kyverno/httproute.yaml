@@ -1,11 +1,11 @@
-# Expose l'UI Policy Reporter (dashboard des verdicts Kyverno) en HTTPS sous
-# `kyverno.lab.example.io`, derrière `main-gateway` (Envoy Gateway). Le TLS est
-# le wildcard `*.lab.example.io` déjà porté par l'écouteur `https` (cert-manager) —
-# aucun Certificate à créer, le wildcard couvre `kyverno.lab.example.io`.
+# Exposes the Policy Reporter UI (the dashboard of Kyverno verdicts) over HTTPS at
+# `kyverno.lab.example.io`, behind `main-gateway` (Envoy Gateway). TLS is the
+# `*.lab.example.io` wildcard already carried by the `https` listener (cert-manager) — no
+# Certificate to create, the wildcard covers `kyverno.lab.example.io`.
 #
-# La route vit dans le namespace `kyverno` mais s'attache au Gateway du namespace
-# `envoy-gateway-system` : possible car `main-gateway` ouvre ses écouteurs à `from: All`.
-# Backend dans le même namespace que la route → pas de ReferenceGrant.
+# The route lives in the `kyverno` namespace but attaches to the Gateway of the
+# `envoy-gateway-system` namespace: possible because `main-gateway` opens its listeners to
+# `from: All`. Backend in the same namespace as the route → no ReferenceGrant.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -15,11 +15,11 @@ spec:
   parentRefs:
     - name: main-gateway
       namespace: envoy-gateway-system
-      sectionName: https          # cible l'écouteur TLS :443
+      sectionName: https          # targets the TLS :443 listener
   hostnames:
-    - kyverno.lab.example.io     # matche le wildcard *.lab.example.io
+    - kyverno.lab.example.io     # matches the *.lab.example.io wildcard
   rules:
     - backendRefs:
-        # UI Policy Reporter — HTTP en clair (8080), Envoy fait le HTTPS devant.
+        # Policy Reporter UI — plain HTTP (8080), Envoy does the HTTPS in front.
         - name: policy-reporter-ui
           port: 8080

@@ -1,19 +1,19 @@
-# Token API Cloudflare pour le solver ACME DNS-01 (crée/supprime les TXT
-# _acme-challenge.lab.example.io le temps de la validation Let's Encrypt).
+# Cloudflare API token for the ACME DNS-01 solver (creates/deletes the
+# _acme-challenge.lab.example.io TXT records for the duration of the Let's Encrypt validation).
 #
-# ⚠️ NE PAS committer le VRAI token. Deux options :
-#   1. (recommandé) créer le secret sans fichier :
+# ⚠️ DO NOT commit the REAL token. Two options:
+#   1. (recommended) create the secret without a file:
 #        kubectl create secret generic cloudflare-api-token \
-#          -n cert-manager --from-literal=api-token='<TON_TOKEN>'
-#   2. copier ce fichier en 01-cloudflare-api-token.yaml (à gitignorer) et le remplir.
+#          -n cert-manager --from-literal=api-token='<YOUR_TOKEN>'
+#   2. copy this file to 01-cloudflare-api-token.yaml (to be gitignored) and fill it in.
 #
-# Le secret DOIT être dans le namespace `cert-manager` : un ClusterIssuer lit ses
-# secrets dans le namespace du contrôleur (--cluster-resource-namespace, défaut cert-manager).
+# The secret MUST be in the `cert-manager` namespace: a ClusterIssuer reads its secrets in the
+# controller's namespace (--cluster-resource-namespace, default cert-manager).
 #
-# Permissions du token (Cloudflare > My Profile > API Tokens > Create Token) :
+# Token permissions (Cloudflare > My Profile > API Tokens > Create Token):
 #   - Zone / DNS / Edit
 #   - Zone / Zone / Read
-#   scopées sur la zone `example.io`.
+#   scoped to the `example.io` zone.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -21,4 +21,4 @@ metadata:
   namespace: cert-manager
 type: Opaque
 stringData:
-  api-token: "<COLLE_TON_TOKEN_CLOUDFLARE_ICI>"
+  api-token: "<PASTE_YOUR_CLOUDFLARE_TOKEN_HERE>"

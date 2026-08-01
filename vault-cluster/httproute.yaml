@@ -1,12 +1,12 @@
-# Expose l'UI + l'API Vault en HTTPS sous `vault.lab.example.io` via Envoy Gateway.
-# Domaine NEUTRE (dépôt public) : ce fichier s'applique À LA MAIN, donc édite le hostname ou
-# passe par `sed 's/lab\.example\.io/<ton-domaine>/g' … | kubectl apply -f -`.
-# Cert = wildcard `*.lab.example.io` porté par l'écouteur `https` de main-gateway
-# (cert-manager) — aucun Certificate dédié.
+# Exposes the Vault UI + API over HTTPS at `vault.lab.example.io` through Envoy Gateway.
+# NEUTRAL domain (public repository): this file is applied BY HAND, so edit the hostname or go
+# through `sed 's/lab\.example\.io/<your-domain>/g' … | kubectl apply -f -`.
+# Cert = the `*.lab.example.io` wildcard carried by the `https` listener of main-gateway
+# (cert-manager) — no dedicated Certificate.
 #
-# Backend = service `vault-active` : seul le nœud Vault ACTIF (leader) y est routé, ce qui
-# évite les redirections 307 des standbys. Ce service n'a d'endpoints qu'une fois Vault
-# initialisé ET descellé (unseal).
+# Backend = the `vault-active` service: only the ACTIVE Vault node (the leader) is routed to,
+# which avoids the 307 redirects of the standbys. That service only has endpoints once Vault
+# is initialised AND unsealed.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

@@ -1,6 +1,7 @@
-# Expose Grafana, Prometheus et Alertmanager en HTTPS via `main-gateway` (Envoy Gateway).
-# TLS = wildcard `*.lab.example.io` (cert-manager) déjà porté par l'écouteur `https` —
-# aucun Certificate à créer. Routes dans le ns `monitoring`, backends dans le même ns.
+# Exposes Grafana, Prometheus and Alertmanager over HTTPS through `main-gateway` (Envoy
+# Gateway). TLS = the `*.lab.example.io` wildcard (cert-manager) already carried by the
+# `https` listener — no Certificate to create. Routes in the `monitoring` ns, backends in the
+# same ns.
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
