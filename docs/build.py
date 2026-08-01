@@ -542,9 +542,9 @@ def inliner_images(corps: str, chemin: str, alertes: list[str]) -> str:
 def css_pygments() -> str:
     """Thèmes de coloration Pygments, alignés sur la logique de la palette.
 
-    Même règle que les variables CSS : le SOMBRE est le défaut, le clair ne
+    Même règle que les variables CSS : le CLAIR est le défaut, le sombre ne
     s'applique que si le lecteur l'a explicitement choisi. Sans ça, les blocs de
-    code resteraient colorés en thème clair sur une page sombre.
+    code resteraient colorés en thème sombre sur une page claire.
     """
     def defs(style: str, selecteur: str) -> str:
         try:
@@ -552,8 +552,8 @@ def css_pygments() -> str:
         except ClassNotFound:
             return HtmlFormatter().get_style_defs(selecteur)
 
-    sombre = defs("github-dark", ':root:not([data-theme="light"]) .bloc-code pre')
-    clair = defs("friendly", ':root[data-theme="light"] .bloc-code pre')
+    sombre = defs("github-dark", ':root[data-theme="dark"] .bloc-code pre')
+    clair = defs("friendly", ':root:not([data-theme="dark"]) .bloc-code pre')
     return (
         f"{sombre}\n{clair}\n"
         # le fond des blocs vient de nos variables, pas du thème Pygments
@@ -589,10 +589,10 @@ CSS = """
   --sans:system-ui,-apple-system,"Segoe UI",Inter,Roboto,"Helvetica Neue",sans-serif;
   --menu:290px; --toc:15.5rem; --texte-large:52rem;
 }
-/* SOMBRE PAR DÉFAUT : la palette claire ci-dessus n'est que la base, le sombre
-   s'applique sauf si le lecteur a explicitement choisi le clair via la bascule.
+/* CLAIR PAR DÉFAUT : la palette claire ci-dessus est celle qui s'applique, et le
+   sombre ne s'active que si le lecteur l'a explicitement demandé via la bascule.
    On n'écoute donc PAS prefers-color-scheme — c'est un choix assumé. */
-:root:not([data-theme="light"]){__SOMBRE__}
+:root[data-theme="dark"]{__SOMBRE__}
 html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--fond);color:var(--texte);font:16px/1.7 var(--sans);
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
@@ -942,12 +942,12 @@ JS = r"""
     setTimeout(() => { b.textContent = mots().copier; b.classList.remove('ok'); }, 1600);
   });
 
-  /* --- thème : SOMBRE par défaut, bascule mémorisée --- */
+  /* --- thème : CLAIR par défaut, bascule mémorisée --- */
   const CLE = __CLE__ + '-theme';
   const memo = localStorage.getItem(CLE);
   if (memo) document.documentElement.dataset.theme = memo;
   function majTheme() {
-    const sombre = (document.documentElement.dataset.theme || 'dark') === 'dark';
+    const sombre = (document.documentElement.dataset.theme || 'light') === 'dark';
     const m = mots();
     document.querySelectorAll('[data-theme-toggle]').forEach(b => {
       b.textContent = sombre ? '☀' : '☾';
@@ -969,7 +969,7 @@ JS = r"""
     majTheme();
   }));
   document.querySelectorAll('[data-theme-toggle]').forEach(b => b.addEventListener('click', () => {
-    const suivant = (document.documentElement.dataset.theme || 'dark') === 'dark' ? 'light' : 'dark';
+    const suivant = (document.documentElement.dataset.theme || 'light') === 'dark' ? 'light' : 'dark';
     document.documentElement.dataset.theme = suivant;
     localStorage.setItem(CLE, suivant);
     majTheme();
@@ -1181,7 +1181,7 @@ def construire(rendus: list[dict], version: str, alertes: list[str]) -> str:
   <button class="bouton-icone" data-menu-toggle aria-label="{html.escape(mots['menu'], quote=True)}">☰</button>
   <strong>{NOM_PROJET}</strong>
   {selecteur_langue(mots)}
-  <button class="bouton-icone" data-theme-toggle>☀</button>
+  <button class="bouton-icone" data-theme-toggle>☾</button>
 </header>
 <div class="enveloppe">
   <aside class="menu">
@@ -1203,7 +1203,7 @@ def construire(rendus: list[dict], version: str, alertes: list[str]) -> str:
   <main class="contenu">{"".join(articles)}</main>
   <aside class="sommaire" aria-label="{html.escape(mots['sommaire'], quote=True)}"></aside>
 </div>
-<button class="bouton-icone theme-flottant" data-theme-toggle>☀</button>
+<button class="bouton-icone theme-flottant" data-theme-toggle>☾</button>
 <script>{js}</script>
 </body>
 </html>
