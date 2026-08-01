@@ -3,8 +3,8 @@
 # no intervention.
 #
 # Difference with cert-manager (../cert-manager/): cert-manager = PUBLIC certs (Let's Encrypt,
-# exposition Internet). VaultPKISecret = PKI PRIVÉE interne (mTLS entre services, CA maison Vault).
-# Les deux coexistent : Let's Encrypt en bordure, PKI Vault en interne.
+# Internet-facing). VaultPKISecret = an internal PRIVATE PKI (mTLS between services, Vault's
+# own CA). The two coexist: Let's Encrypt at the edge, Vault PKI on the inside.
 apiVersion: secrets.hashicorp.com/v1beta1
 kind: VaultPKISecret
 metadata:

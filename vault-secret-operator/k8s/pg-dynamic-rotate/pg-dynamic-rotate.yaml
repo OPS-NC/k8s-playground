@@ -109,7 +109,7 @@ spec:
             - sh
             - -c
             - |
-              echo "[pg-rotate-demo] démarré $(date -u +%H:%M:%S) — DSN injectée :"
+              echo "[pg-rotate-demo] started $(date -u +%H:%M:%S) — injected DSN:"
               echo "  DATABASE_URL=$(echo "$DATABASE_URL" | sed 's/:[^:@]*@/:****@/')"
               echo "  PGUSER=$PGUSER PGDATABASE=$PGDATABASE PGHOST=$PGHOST"
               exec sleep infinity

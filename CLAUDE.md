@@ -1,130 +1,130 @@
-# CLAUDE.md — mode d'emploi de ce dépôt pour un agent
+# CLAUDE.md — how this repository works, for an agent
 
-> Ce fichier n'est PAS publié dans la documentation (`docs/build.py` l'exclut) : il ne
-> s'adresse qu'à un assistant qui travaille sur ce dépôt.
+> This file is NOT published in the documentation (`docs/build.py` excludes it): it only
+> addresses an assistant working on this repository.
 
-## 1. Ce qu'est ce dépôt
+## 1. What this repository is
 
-`k8s-playground` est la **couche applicative Kubernetes commune à deux labs Vagrant** :
+`k8s-playground` is the **Kubernetes application layer shared by two Vagrant labs**:
 
-| Lab | Base | Dépôt |
+| Lab | Base | Repository |
 |---|---|---|
-| Talos | Talos Linux — OS immuable, pas de systemd, PodSecurity `baseline` au niveau cluster, `talosctl` | `OPS-NC/Vagrant-Talos` |
-| kubeadm | Debian 13 + `kubeadm` — OS ordinaire, aucun PodSecurity appliqué, kube-proxy remplaçable | `OPS-NC/Vagrant-kubeadm` |
+| Talos | Talos Linux — immutable OS, no systemd, PodSecurity `baseline` cluster-wide, `talosctl` | `OPS-NC/Vagrant-Talos` |
+| kubeadm | Debian 13 + `kubeadm` — ordinary OS, no PodSecurity enforced, replaceable kube-proxy | `OPS-NC/Vagrant-kubeadm` |
 
-Ce dépôt **ne monte aucun cluster** : pas de `Vagrantfile`, pas de `lab.env`, pas de `_out/`.
-Les labs possèdent les VM, l'OS et l'état ; ce dépôt possède les manifestes et les charts,
-appliqués depuis l'hôte avec `kubectl` / `helm`. Cette absence est **porteuse** : c'est elle qui
-permet de reconnaître le lab (« le parent porte un `Vagrantfile` ») sans ambiguïté.
+This repository **brings up no cluster**: no `Vagrantfile`, no `lab.env`, no `_out/`. The labs
+own the VMs, the OS and the state; this repository owns the manifests and the charts, applied
+from the host with `kubectl` / `helm`. That absence is **load-bearing**: it is what makes "the
+parent holds a `Vagrantfile`" an unambiguous way to spot the lab.
 
-Disposition normale : **sous-module** monté sur `<lab>/_k8s`. Disposition secondaire : dépôts
-voisins (`../Vagrant-Talos`, `../Vagrant-KubeADM`).
+Normal layout: a **submodule** mounted on `<lab>/_k8s`. Secondary layout: sibling repositories
+(`../Vagrant-Talos`, `../Vagrant-KubeADM`).
 
-## 2. LA règle : tout doit marcher sur Talos ET sur kubeadm
+## 2. THE rule: everything must work on Talos AND on kubeadm
 
-**Aucune ressource de ce dépôt n'a le droit de ne fonctionner que sur une seule des deux
-distributions.** Un composant est terminé quand il s'installe et fonctionne sur les deux labs,
-et que son README explique — même pour dire « rien ne change » — ce qui diffère.
+**No resource in this repository is allowed to work on only one of the two distributions.** A
+component is finished when it installs and works on both labs, and when its README explains —
+even if only to say "nothing changes" — what differs.
 
-Corollaires, à respecter sans exception :
+Corollaries, to be followed without exception:
 
-1. **Jamais de `if [ "$K8S_DISTRO" = talos ]` dispersé dans un script de composant.** Tout ce
-   qui diverge est une **variable de profil** (`lib/profiles/talos.sh` /
-   `lib/profiles/kubeadm.sh`). Le script de composant lit la variable, il ne teste pas la
-   distribution. Si un nouveau besoin de divergence apparaît : ajouter la variable **dans les
-   deux profils** (avec un commentaire expliquant pourquoi elle vaut ça ici), puis la lire.
-2. **Le profil documente aussi le cas « inutile ».** Sur kubeadm, la plupart des contournements
-   Talos tombent : on ne les supprime pas, on écrit `LONGHORN_PREP_REQUIRED=false` avec le
-   commentaire qui dit *pourquoi* ça tombe. La comparaison entre les deux labs est un objectif
-   pédagogique du dépôt, pas un effet de bord.
-3. **Namespaces privilégiés étiquetés dans les deux cas.** Un pod privilégié (hostPath,
-   hostNetwork, hostPID) exige `pod-security.kubernetes.io/enforce: privileged` sur son
-   namespace : indispensable sur Talos (refus **silencieux** sinon — le Deployment existe, le
-   ReplicaSet ne crée aucun pod), sans effet aujourd'hui sur kubeadm, mais posé quand même
-   parce qu'il documente le besoin et protège d'un durcissement futur.
-4. **Chaque README a une section « 🧬 Talos vs kubeadm »**, y compris quand la réponse est
-   « aucune spécificité » — auquel cas on dit explicitement que l'argument de distribution ne
-   pilote alors que le domaine par défaut et l'emplacement de `lab.env` / `kubeconfig`.
-5. **Rien qui suppose systemd, un `/` inscriptible, un `/opt`, un accès SSH ou un gestionnaire
-   de paquets** sans passer par une variable de profil. Sur Talos, la configuration des nodes
-   passe par `talosctl` (API) et les prérequis « paquet » deviennent des **extensions** cuites
-   dans l'image d'installation — elles ne s'ajoutent pas à chaud.
+1. **Never an `if [ "$K8S_DISTRO" = talos ]` scattered through a component script.** Everything
+   that diverges is a **profile variable** (`lib/profiles/talos.sh` / `lib/profiles/kubeadm.sh`).
+   The component script reads the variable, it does not test the distribution. When a new need
+   for divergence appears: add the variable **to both profiles** (with a comment explaining why
+   it holds that value there), then read it.
+2. **The profile also documents the "not needed" case.** On kubeadm most of the Talos
+   workarounds fall away: we do not delete them, we write `LONGHORN_PREP_REQUIRED=false` with
+   the comment that says *why* it falls away. Comparing the two labs is a teaching goal of the
+   repository, not a side effect.
+3. **Privileged namespaces labelled in both cases.** A privileged pod (hostPath, hostNetwork,
+   hostPID) needs `pod-security.kubernetes.io/enforce: privileged` on its namespace: mandatory
+   on Talos (a **silent** refusal otherwise — the Deployment exists, the ReplicaSet creates no
+   pod), without effect on kubeadm today, but put there anyway because it documents the need
+   and protects against future hardening.
+4. **Every README has a "🧬 Talos vs kubeadm" section**, including when the answer is "no
+   distribution-specific behaviour" — in which case we say explicitly that the distribution
+   argument then only drives the default domain and the location of `lab.env` / `kubeconfig`.
+5. **Nothing that assumes systemd, a writable `/`, an `/opt`, SSH access or a package manager**
+   without going through a profile variable. On Talos, node configuration goes through
+   `talosctl` (an API) and "package" prerequisites become **extensions** baked into the
+   installer image — they cannot be added at runtime.
 
 ## 3. Architecture
 
 ```
-install.sh                  point d'entrée : ./install.sh [talos|kubeadm] <composant...>
-platform-up.sh              socle : CNI → Envoy Gateway → metrics-server → wildcard TLS
-metric-server.yaml          metrics-server (appliqué par platform-up.sh)
-lib/common.sh               socle commun : résolution distro/lab, lecture lab.env, helpers
-lib/profiles/{talos,kubeadm}.sh   TOUT ce qui diverge entre les deux labs
-<composant>/
-  <composant>-up.sh         installation tout-en-un, idempotente
-  values.yaml / *.yaml      manifestes et values, en valeurs NEUTRES
-  README.md / LISEZ-MOI.md  doc EN (canonique) + miroir FR
-docs/build.py               génère la page unique depuis tous les README (make docs)
-Makefile                    docs, docs-check, validate — tout ce qui tourne sans cluster
+install.sh                  entry point: ./install.sh [talos|kubeadm] <component...>
+platform-up.sh              the base layer: CNI → Envoy Gateway → metrics-server → wildcard TLS
+metric-server.yaml          metrics-server (applied by platform-up.sh)
+lib/common.sh               shared core: distro/lab resolution, lab.env reading, helpers
+lib/profiles/{talos,kubeadm}.sh   EVERYTHING that diverges between the two labs
+<component>/
+  <component>-up.sh         the all-in-one, idempotent install
+  values.yaml / *.yaml      manifests and values, with NEUTRAL values
+  README.md / LISEZ-MOI.md  EN docs (canonical) + FR mirror
+docs/build.py               builds the single-page site from every README (make docs)
+Makefile                    docs, docs-check, validate — everything that runs without a cluster
 ```
 
-### `lib/common.sh` — l'API que tout script de composant utilise
+### `lib/common.sh` — the API every component script uses
 
-| Fonction / variable | Rôle |
+| Function / variable | Role |
 |---|---|
-| `k8s_init "$@"` | **Point d'entrée obligatoire.** Résout la distribution, charge son profil, localise le lab, calcule `LAB_DOMAIN` / `WILDCARD_TLS`, positionne `KUBECONFIG`. Les arguments non consommés partent dans `K8S_ARGS`. |
-| `log` / `warn` / `fail` | Affichage normalisé (`==>`, `/!\`, `ERREUR :` + `exit 1`). |
-| `need bin...` | Échoue si un binaire manque du `PATH`. |
-| `require_apiserver` | Échoue si l'apiserver ne répond pas, avec le rappel du `cluster-up.sh` de la bonne distro. |
-| `require_sc <sc>` | Échoue si la StorageClass est absente, avec la commande d'installation. |
-| `read_param NOM DEFAUT` | environnement > `_out/cluster.env` > `lab.env` > défaut. |
-| `rendre FICHIER...` | Écrit le manifeste sur stdout avec les marqueurs neutres substitués. |
-| `distro_summary` | Ligne de rappel du profil actif, affichée en tête d'installation. |
-| `REPO_ROOT`, `LAB_DIR`, `K8S_DISTRO`, `LAB_DOMAIN`, `WILDCARD_TLS` | Variables exportées par `k8s_init`. |
+| `k8s_init "$@"` | **Mandatory entry point.** Resolves the distribution, loads its profile, locates the lab, computes `LAB_DOMAIN` / `WILDCARD_TLS`, sets `KUBECONFIG`. Unconsumed arguments go into `K8S_ARGS`. |
+| `log` / `warn` / `fail` | Normalised output (`==>`, `/!\`, `ERROR:` + `exit 1`). |
+| `need bin...` | Fails if a binary is missing from `PATH`. |
+| `require_apiserver` | Fails if the apiserver does not answer, with a reminder of the right distro's `cluster-up.sh`. |
+| `require_sc <sc>` | Fails if the StorageClass is missing, with the install command. |
+| `read_param NAME DEFAULT` | environment > `_out/cluster.env` > `lab.env` > default. |
+| `render FILE...` | Writes the manifest to stdout with the neutral markers substituted. |
+| `distro_summary` | The one-line reminder of the active profile, printed at the top of an install. |
+| `REPO_ROOT`, `LAB_DIR`, `K8S_DISTRO`, `LAB_DOMAIN`, `WILDCARD_TLS` | Variables exported by `k8s_init`. |
 
-### Le dépôt est public : trois marqueurs neutres, substitués à la volée
+### The repository is public: three neutral markers, substituted on the fly
 
-Aucun manifeste versionné ne porte de valeur réelle. `render` remplace, **sans jamais réécrire
-un fichier versionné** (`git status` reste propre) :
+No versioned manifest carries a real value. `render` replaces them, **without ever rewriting a
+versioned file** (`git status` stays clean):
 
-| Marqueur versionné | Remplacé par |
+| Versioned marker | Replaced with |
 |---|---|
-| `lab.example.io` | `$LAB_DOMAIN` (défaut `<distro>.lab.example.io`) |
-| `lab-example-io` | `$LAB_DOMAIN_DASH` — nom du Secret TLS wildcard |
+| `lab.example.io` | `$LAB_DOMAIN` (default `<distro>.lab.example.io`) |
+| `lab-example-io` | `$LAB_DOMAIN_DASH` — the wildcard TLS Secret name |
 | `lab-kv` | `$VAULT_KV_MOUNT` (`talos-lab` / `kubeadm-lab`) |
 
-Toute valeur qui dépend du lab **doit** passer par un de ces marqueurs ou par `read_param`.
-Ne jamais committer un domaine réel, un token, un mot de passe : la CI `docs` refuse de publier
-si elle détecte un motif de secret dans la page générée.
+Any value that depends on the lab **must** go through one of those markers or through
+`read_param`. Never commit a real domain, a token or a password: the `docs` CI refuses to
+publish if it detects a secret pattern in the generated page.
 
-### Exposition des UI
+### Exposing UIs
 
-Une seule Gateway, `main-gateway` (ns `envoy-gateway-system`), écouteurs `:80` et `:443`. Le
-TLS est terminé par **Envoy** avec le wildcard `*.<LAB_DOMAIN>`. Un composant qui expose une UI
-pose donc un `HTTPRoute` **dans son propre namespace** :
+A single Gateway, `main-gateway` (ns `envoy-gateway-system`), listeners `:80` and `:443`. TLS is
+terminated by **Envoy** with the `*.<LAB_DOMAIN>` wildcard. A component exposing a UI therefore
+lays down an `HTTPRoute` **in its own namespace**:
 
 ```yaml
 parentRefs:
   - name: main-gateway
     namespace: envoy-gateway-system
-    sectionName: https        # écouteur TLS :443
+    sectionName: https        # TLS :443 listener
 hostnames:
-  - <appli>.lab.example.io    # matche le wildcard
+  - <app>.lab.example.io      # matches the wildcard
 ```
 
-Possible entre namespaces parce que `main-gateway` ouvre ses écouteurs à `from: All` ; le
-backend étant dans le même namespace que la route, aucun `ReferenceGrant` n'est nécessaire.
-**Corollaire systématique** : l'application derrière doit parler **HTTP en clair** et ne pas
-faire sa propre redirection `http→https`, sinon boucle de redirection (cf.
-`server.insecure=true` d'Argo CD, `proxy.headers: xforwarded` de Keycloak).
+Cross-namespace attachment is possible because `main-gateway` opens its listeners to
+`from: All`; since the backend sits in the same namespace as the route, no `ReferenceGrant` is
+needed. **Systematic corollary**: the application behind must speak **plain HTTP** and must not
+do its own `http→https` redirect, otherwise you get a redirect loop (see Argo CD's
+`server.insecure=true`, Keycloak's `proxy.headers: xforwarded`).
 
-## 4. Ajouter un composant — la checklist
+## 4. Adding a component — the checklist
 
-1. `mkdir <composant>/` ; le script s'appelle `<composant>-up.sh`, il est **exécutable** et
-   **idempotent** (`helm upgrade --install` + `kubectl apply`, relançable sans casse).
-2. En-tête de script : commentaire qui dit **quoi**, **comment le lancer**, **les prérequis**,
-   **ce qui diffère entre les deux distributions**, et pourquoi le montage est fait ainsi.
-   Les commentaires de ce dépôt expliquent le *pourquoi*, pas le *quoi* — c'est le contrat de
-   style, y compris dans les YAML.
-3. Squelette :
+1. `mkdir <component>/`; the script is named `<component>-up.sh`, it is **executable** and
+   **idempotent** (`helm upgrade --install` + `kubectl apply`, safe to re-run).
+2. Script header: a comment that says **what**, **how to run it**, **the prerequisites**, **what
+   differs between the two distributions**, and why the setup is the way it is. This
+   repository's comments explain the *why*, not the *what* — that is the style contract, YAML
+   files included.
+3. Skeleton:
    ```bash
    #!/usr/bin/env bash
    set -euo pipefail
@@ -132,85 +132,85 @@ faire sa propre redirection `http→https`, sinon boucle de redirection (cf.
    # shellcheck source=../lib/common.sh
    . "${HERE}/../lib/common.sh"
    k8s_init "$@"
-   FOO_VERSION="${FOO_VERSION:-x.y.z}"   # version ÉPINGLÉE, surchargeable
+   FOO_VERSION="${FOO_VERSION:-x.y.z}"   # PINNED version, overridable
    need kubectl helm
    require_apiserver
    ```
-4. Versions **épinglées** dans le script via une variable d'environnement surchargeable, et
-   reportées dans le tableau « Versions épinglées » des deux README racine.
-5. Étapes numérotées `log "[1/N] …"`, puis un bloc final qui affiche l'URL, les identifiants
-   (jamais leur valeur : la **commande** pour les lire) et une commande de vérification.
-6. Secrets : jamais sur stdout, jamais dans un fichier versionné. Le seul emplacement admis
-   est `${LAB_DIR}/_out/` (gitignoré), en `0600`, avec `umask 077` posé **avant** la
-   redirection (cf. `vault-cluster/vault-up.sh`).
-7. Documentation : `README.md` (EN, canonique) **et** `LISEZ-MOI.md` (FR, miroir strict).
-8. Référencer le composant :
-   - `install.sh` → tableau `CATALOGUE` (`alias|chemin/script|description`), à la bonne place
-     dans l'ordre d'installation conseillé (`all`) ;
-   - `README.md` et `LISEZ-MOI.md` racine → section « catalogue » + tableau des versions
-     (+ « chaîne de dépendances » si le composant en introduit une) ;
-   - `docs/build.py` → `GROUPES` (groupe du menu) et `EMOJIS` (pictogramme de la page).
-9. `make validate` doit passer.
+4. Versions **pinned** in the script through an overridable environment variable, and carried
+   over into the "Pinned versions" table of both root READMEs.
+5. Numbered steps `log "[1/N] …"`, then a final block printing the URL, the credentials (never
+   their value: the **command** that reads them) and a verification command.
+6. Secrets: never on stdout, never in a versioned file. The only acceptable location is
+   `${LAB_DIR}/_out/` (gitignored), mode `0600`, with `umask 077` set **before** the redirection
+   (see `vault-cluster/vault-up.sh`).
+7. Documentation: `README.md` (EN, canonical) **and** `LISEZ-MOI.md` (FR, mirror).
+8. Reference the component:
+   - `install.sh` → the `CATALOGUE` array (`alias|path/script|description`), in the right place
+     in the recommended install order (`all`);
+   - the root `README.md` and `LISEZ-MOI.md` → the catalogue section + the versions table
+     (+ the "dependency chain" if the component introduces one);
+   - `docs/build.py` → `GROUPS` (the menu group) and `EMOJIS` (the page icon).
+9. `make validate` must pass.
 
-### Le gabarit d'un README de composant
+### The template of a component README
 
-Ordre des sections, tel qu'on le trouve dans tous les dossiers existants :
+Section order, as found in every existing directory:
 
 ```
-<!-- i18n -->            bannière de langue (EN : **English** · [Français](LISEZ-MOI.md))
-# <emoji> `<dossier>/` — titre
-> accroche en une ou deux phrases
-> 🌐 rappel du domaine neutre
-## 🎯 À quoi ça sert
-### Le montage en une phrase
-## 📋 Prérequis                (tableau : prérequis | pourquoi | vérifier)
-## ⚡ Installation             (install.sh, puis <composant>-up.sh, puis <details> équivalent manuel)
-## 🧬 Talos vs kubeadm         (OBLIGATOIRE, même pour dire « aucune spécificité »)
-## 🎓 Pas à pas guidé          (les mêmes commandes, une par une — usage formation)
-## 🔧 Ce que fait le script + tableau « Fichiers »
-## ✅ Vérifier
-## 🌐 Accès                    (si UI)
-## 🧪 Scénario                 (la démo qui justifie le composant)
-## 🚑 Dépannage
-## ⚠️ Pièges
-## 📚 Références
+<!-- i18n -->            language banner (EN: **English** · [Français](LISEZ-MOI.md))
+# <emoji> `<directory>/` — title
+> one- or two-sentence hook
+> 🌐 reminder about the neutral domain
+## 🎯 Purpose
+### The setup in one sentence
+## 📋 Prerequisites          (table: prerequisite | why | verify)
+## ⚡ Install                (install.sh, then <component>-up.sh, then a <details> manual equivalent)
+## 🧬 Talos vs kubeadm       (MANDATORY, even to say "no specific behaviour")
+## 🎓 Guided walkthrough     (the same commands, one at a time — for training)
+## 🔧 What the script does + a "Files" table
+## ✅ Verify
+## 🌐 Access                 (if there is a UI)
+## 🧪 Scenario               (the demo that justifies the component)
+## 🚑 Troubleshooting
+## ⚠️ Pitfalls
+## 📚 References
 ```
 
-Le miroir FR est **strict** : mêmes sections, mêmes tableaux, mêmes commandes, mêmes ancres
-relatives — seuls la langue et les liens changent (`../x/README.md` → `../x/LISEZ-MOI.md`).
+The FR mirror is **strict**: same sections, same tables, same commands, same relative anchors —
+only the language and the links change (`../x/README.md` → `../x/LISEZ-MOI.md`).
 
 ## 5. Documentation
 
-- `README.md` = anglais **canonique**, `LISEZ-MOI.md` = miroir français, dans le **même
-  dossier**. Toute page a ses deux versions ; un oubli est visible (badge « EN »).
-- `docs/build.py` génère `docs/index.html`, **page unique autonome** : aucun CDN, aucun asset
-  externe, images embarquées en `data:` URI. Toute page `*.md` du dépôt est découverte
-  automatiquement (sauf exclusions) ; seuls le groupe de menu et l'emoji sont déclarés.
-- Les liens internes sont réécrits en routes de la page unique. **`make docs-check` échoue si
-  un lien ou une ancre ne résout pas** — c'est aussi ce que fait la CI (`--strict`). Un lien
-  vers un fichier qui n'existe pas encore casse donc le build : ne pas référencer un composant
-  d'une autre branche.
-- Commandes : `make docs`, `make docs-open`, `make docs-check`.
+- `README.md` = **canonical** English, `LISEZ-MOI.md` = French mirror, in the **same
+  directory**. Every page has both versions; a missing one is visible (an "EN" badge).
+- `docs/build.py` generates `docs/index.html`, a **single self-contained page**: no CDN, no
+  external asset, images embedded as `data:` URIs. Every `*.md` file of the repository is
+  discovered automatically (barring exclusions); only the menu group and the emoji are declared.
+- Internal links are rewritten into routes of the single page. **`make docs-check` fails if a
+  link or an anchor does not resolve** — that is also what CI does (`--strict`). A link to a
+  file that does not exist yet therefore breaks the build: do not reference a component that
+  lives on another branch.
+- Commands: `make docs`, `make docs-open`, `make docs-check`.
 
-## 6. Valider avant de conclure
+## 6. Validate before concluding
 
 ```bash
 make validate        # = validate-shell + validate-yaml + validate-docs
-make validate-shell  # bash -n sur tous les *.sh
-make validate-yaml   # kubectl create --dry-run=client sur tous les *.yaml/*.yml (sans cluster)
-make docs-check      # tous les liens et ancres de la doc résolvent
+make validate-shell  # bash -n on every *.sh
+make validate-yaml   # kubectl create --dry-run=client on every *.yaml/*.yml (no cluster)
+make docs-check      # every link and anchor of the documentation resolves
 ```
 
-Aucun cluster n'est requis. Une tâche n'est pas terminée tant que `make validate` ne passe pas.
+No cluster is required. A task is not finished until `make validate` passes.
 
 ## 7. Conventions
 
-- **Langue** : commentaires de code et scripts en **français** ; `README.md` en **anglais**,
-  `LISEZ-MOI.md` en **français**.
-- **Commits** : `[Claude] <type>: <description>` — `fix`, `feat`, `refactor`, `docs`, `chore`,
-  `perf`, `test`. Message en français.
-- **Shell** : `set -euo pipefail` partout. Jamais de `grep` dont l'échec est normal (sous
-  `pipefail` + `set -e`, il tue le script) — utiliser `sed -n 's///p'` ou terminer par
-  `|| true`.
-- **Pas de `sudo`** dans les scripts.
-- Ne pas créer de fichier qui n'est pas référencé par un README ou un script.
+- **Language**: code and script comments in **English**; `README.md` in **English**,
+  `LISEZ-MOI.md` in **French**. French is confined to the FR mirrors and to the French UI
+  strings of `docs/build.py`.
+- **Commits**: `[Claude] <type>: <description>` — `fix`, `feat`, `refactor`, `docs`, `chore`,
+  `perf`, `test`. The message is written in French.
+- **Shell**: `set -euo pipefail` everywhere. Never a `grep` whose failure is normal (under
+  `pipefail` + `set -e` it kills the script) — use `sed -n 's///p'` or end with `|| true`.
+- **No `sudo`** in the scripts.
+- Do not create a file that is not referenced by a README or a script.

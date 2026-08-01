@@ -149,10 +149,10 @@ spec:
         - --secure-port=10250
         # ⚠️ On BOTH distributions of the lab, the kubelet's "serving" certificate is
         # SELF-SIGNED by the kubelet itself (it is NOT signed by the cluster CA)
-        # => sans ce drapeau, metrics-server échoue sur `x509: certificate signed by
-        # unknown authority` et `kubectl top` renvoie « metrics not available ».
+        # => without this flag, metrics-server fails with `x509: certificate signed by
+        # unknown authority` and `kubectl top` returns "metrics not available".
         # The clean alternative, OUT OF SCOPE for this lab (`serverTLSBootstrap: true` on
-        # kubeadm, `machine.kubelet.extraArgs.rotate-server-certificates` sur Talos) :
+        # kubeadm, `machine.kubelet.extraArgs.rotate-server-certificates` on Talos):
         # in the KubeletConfiguration (the kubelet then requests a certificate from the
         # `kubernetes.io/kubelet-serving` signer) + an approver that validates the CSRs —
         # kube-controller-manager NEVER approves them automatically, so it would take

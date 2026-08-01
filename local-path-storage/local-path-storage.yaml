@@ -11,7 +11,7 @@
 #      a default `AdmissionConfiguration`, a managed cluster…).
 #   2. The `local-path` StorageClass is marked as the default (is-default-class annotation).
 #
-# ⚠️ CHEMIN DE STOCKAGE PILOTÉ PAR LE PROFIL DE DISTRIBUTION (`LOCAL_PATH_DIR`).
+# ⚠️ STORAGE PATH DRIVEN BY THE DISTRIBUTION PROFILE (`LOCAL_PATH_DIR`).
 # This file carries the UPSTREAM path, `/opt/local-path-provisioner` (the kubeadm case: on
 # Debian 13 `/opt` is writable and the helper pod creates it without asking anyone).
 # `local-path-up.sh` replaces it on the fly with `/var/local-path-provisioner` on Talos, where

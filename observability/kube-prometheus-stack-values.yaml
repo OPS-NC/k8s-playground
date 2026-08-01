@@ -62,7 +62,7 @@ alertmanager:
     # No PVC: emptyDir storage (the default) — the alert history does not need to survive in a lab.
 
 # --- Control-plane components ----------------------------------------------------------
-# ⚠️ SECTION PILOTÉE PAR LE PROFIL DE DISTRIBUTION.
+# ⚠️ SECTION DRIVEN BY THE DISTRIBUTION PROFILE.
 # `observability-up.sh` force `kubeControllerManager.enabled=false`,
 # `kubeScheduler.enabled=false` et `kubeEtcd.enabled=false` quand
 # `KPS_SCRAPE_CONTROL_PLANE=false` — that is to say on TALOS, where those components are not
