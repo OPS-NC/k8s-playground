@@ -206,7 +206,7 @@ internal name instead, `proxy.headers` or `hostname.hostname` is wrong — see �
 |---|---|
 | `01-postgres.yaml` | CloudNativePG `Cluster` `keycloak-db` — 1 instance, 2Gi on `longhorn-r1`, database and owner `keycloak` |
 | `02-keycloak.yaml` | the `Keycloak` CR: database, `httpEnabled`, `proxy.headers: xforwarded`, public hostname, operator Ingress disabled |
-| `03-realm-lab.yaml` | `KeycloakRealmImport`: realm `lab`, groups `k8s-admins` / `k8s-viewers`, `groups` client scope, `demo` user whose password comes from a Secret |
+| `03-realm-lab.yaml` | `KeycloakRealmImport`: realm `lab`, groups `k8s-admins` / `k8s-viewers`, `groups` client scope, the `demo` and `viewer` users whose passwords come from Secrets |
 | `httproute.yaml` | HTTPS `HTTPRoute` `keycloak.lab.example.io` → `keycloak-service:8080`, `sectionName: https` |
 | `keycloak-up.sh` | the all-in-one install (idempotent) |
 
@@ -237,6 +237,8 @@ pass the lab CA with `--cacert`.
 | Discovery | `https://keycloak.lab.example.io/realms/lab/.well-known/openid-configuration` |
 | Demo user | `demo`, member of `k8s-admins` |
 | Its password | `kubectl -n keycloak get secret keycloak-demo-user -o jsonpath='{.data.password}' \| base64 -d ; echo` |
+| View-only user | `viewer`, member of `k8s-viewers` |
+| Its password | `kubectl -n keycloak get secret keycloak-viewer-user -o jsonpath='{.data.password}' \| base64 -d ; echo` |
 
 > 💡 Create your own admin in the `master` realm, then **delete the bootstrap Secret**:
 > `kubectl -n keycloak delete secret keycloak-initial-admin`.

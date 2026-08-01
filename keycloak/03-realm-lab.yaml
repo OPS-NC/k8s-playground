@@ -28,6 +28,10 @@ spec:
       secret:
         name: keycloak-demo-user
         key: password
+    VIEWER_PASSWORD:
+      secret:
+        name: keycloak-viewer-user
+        key: password
   realm:
     realm: lab
     enabled: true
@@ -86,9 +90,25 @@ spec:
       - web-origins
       - groups
 
-    # --- Demo user ------------------------------------------------------------
-    # A member of `k8s-admins`: in the `../dex/` scenario, this is the one that gets
-    # `cluster-admin` without a single client certificate being handed out.
+    # --- Demo users -----------------------------------------------------------
+    # TWO users, because one proves nothing. `demo` gets `cluster-admin` and `viewer` gets
+    # `view`, through their group alone — not a single client certificate is handed out, and
+    # not one line of RBAC mentions a person (see ../dex/rbac.yaml).
+    #
+    # `viewer` is what makes the demonstration falsifiable: if both accounts could do the same
+    # things, nothing would prove the `groups` claim is actually being read. The check that
+    # matters is the one that must FAIL:
+    #     kubectl --context=oidc-viewer auth can-i create pods   => no
+    #     kubectl --context=oidc-viewer auth can-i list pods      => yes
+    #
+    # ⚠️ `view` is NOT "read everything": it deliberately excludes Secrets and grants nothing on
+    #    cluster-scoped objects. So `kubectl get nodes` is FORBIDDEN for `viewer` — that is the
+    #    ClusterRole behaving correctly, not a broken login. Use `get pods` to test.
+    #
+    # ⚠️ `emailVerified: true` is not cosmetic: the apiserver is wired with
+    #    `--oidc-username-claim=email`, so the email IS the Kubernetes identity. An unverified
+    #    account whose email Keycloak refuses to emit would authenticate and then be
+    #    unidentifiable — `oidc:` with nothing after it.
     users:
       - username: demo
         enabled: true
@@ -102,3 +122,15 @@ spec:
             temporary: false
         groups:
           - /k8s-admins
+      - username: viewer
+        enabled: true
+        email: viewer@lab.example.io
+        emailVerified: true
+        firstName: View
+        lastName: Only
+        credentials:
+          - type: password
+            value: ${VIEWER_PASSWORD}
+            temporary: false
+        groups:
+          - /k8s-viewers

@@ -332,6 +332,51 @@ kubectl --context=oidc auth whoami                      # oidc:demo@lab.example.
 kubectl --context=oidc auth can-i '*' '*' --all-namespaces   # yes
 ```
 
+## 🧪 The two accounts — the same login, two sets of rights
+
+The realm ships **two** users, and the second one is what makes the demonstration
+falsifiable: if both could do the same things, nothing would prove the `groups` claim is
+actually being read.
+
+| User | Group | ClusterRole | Password |
+|---|---|---|---|
+| `demo` | `k8s-admins` | `cluster-admin` | `kubectl -n keycloak get secret keycloak-demo-user -o jsonpath='{.data.password}' \| base64 -d ; echo` |
+| `viewer` | `k8s-viewers` | `view` | `kubectl -n keycloak get secret keycloak-viewer-user -o jsonpath='{.data.password}' \| base64 -d ; echo` |
+
+Not one line of `rbac.yaml` names a person: the subjects are **groups**
+(`kind: Group`, `oidc:k8s-admins` / `oidc:k8s-viewers`). Adding a colleague is a group
+membership in Keycloak, never a `kubectl` command.
+
+A second context, so both can coexist — same cluster, same issuer, another account. The
+`--oidc-use-pkce` and cache separation matter: without a distinct `--token-cache-dir`,
+kubelogin reuses `demo`'s cached token and the "viewer" context silently stays admin.
+
+```bash
+kubectl config set-credentials oidc-viewer \
+  --exec-api-version=client.authentication.k8s.io/v1beta1 \
+  --exec-command=kubectl \
+  --exec-arg=oidc-login --exec-arg=get-token \
+  --exec-arg=--oidc-issuer-url=https://dex.lab.example.io \
+  --exec-arg=--oidc-client-id=kubernetes \
+  --exec-arg=--oidc-client-secret="$(kubectl -n dex get secret dex-kubernetes-client -o jsonpath='{.data.client-secret}' | base64 -d)" \
+  --exec-arg=--oidc-extra-scope=groups --exec-arg=--oidc-extra-scope=email \
+  --exec-arg=--token-cache-dir=~/.kube/cache/oidc-login-viewer
+kubectl config set-context oidc-viewer --cluster=<your-cluster> --user=oidc-viewer
+```
+
+The check that matters is the one that must **fail**:
+
+```bash
+kubectl --context=oidc-viewer auth whoami            # oidc:viewer@lab.example.io, oidc:k8s-viewers
+kubectl --context=oidc-viewer auth can-i list pods   # yes
+kubectl --context=oidc-viewer auth can-i create pods # no
+kubectl --context=oidc-viewer auth can-i get secrets # no  <- `view` excludes Secrets
+```
+
+> ⚠️ **`view` is not "read everything".** It grants nothing on cluster-scoped objects, so
+> `kubectl --context=oidc-viewer get nodes` is **Forbidden** — the ClusterRole behaving
+> correctly, not a broken login. Test with `get pods`, which `view` does allow.
+
 ## 🧪 Scenario — authorisation lives in Keycloak, not in the cluster
 
 ```bash

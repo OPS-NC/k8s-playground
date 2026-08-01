@@ -209,7 +209,7 @@ interne, c'est `proxy.headers` ou `hostname.hostname` qui est faux — cf. 🚑 
 |---|---|
 | `01-postgres.yaml` | `Cluster` CloudNativePG `keycloak-db` — 1 instance, 2Gi sur `longhorn-r1`, base et propriétaire `keycloak` |
 | `02-keycloak.yaml` | le CR `Keycloak` : base, `httpEnabled`, `proxy.headers: xforwarded`, hostname public, Ingress de l'opérateur désactivé |
-| `03-realm-lab.yaml` | `KeycloakRealmImport` : realm `lab`, groupes `k8s-admins` / `k8s-viewers`, scope `groups`, utilisateur `demo` dont le mot de passe vient d'un Secret |
+| `03-realm-lab.yaml` | `KeycloakRealmImport` : realm `lab`, groupes `k8s-admins` / `k8s-viewers`, scope `groups`, utilisateurs `demo` et `viewer` dont les mots de passe viennent de Secrets |
 | `httproute.yaml` | `HTTPRoute` HTTPS `keycloak.lab.example.io` → `keycloak-service:8080`, `sectionName: https` |
 | `keycloak-up.sh` | l'installation tout-en-un (idempotente) |
 
@@ -240,6 +240,8 @@ curl -sS -o /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' \
 | Découverte | `https://keycloak.lab.example.io/realms/lab/.well-known/openid-configuration` |
 | Utilisateur de démo | `demo`, membre de `k8s-admins` |
 | Son mot de passe | `kubectl -n keycloak get secret keycloak-demo-user -o jsonpath='{.data.password}' \| base64 -d ; echo` |
+| Utilisateur en lecture seule | `viewer`, membre de `k8s-viewers` |
+| Son mot de passe | `kubectl -n keycloak get secret keycloak-viewer-user -o jsonpath='{.data.password}' \| base64 -d ; echo` |
 
 > 💡 Crée ton propre admin dans le realm `master`, puis **supprime le Secret de bootstrap** :
 > `kubectl -n keycloak delete secret keycloak-initial-admin`.

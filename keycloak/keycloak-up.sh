@@ -98,13 +98,17 @@ log "[4/5] 'lab' realm (KeycloakRealmImport) + demo user"
 # `create --dry-run | apply`: the latter would regenerate the password on every run, while the
 # realm has already imported the old one — user `demo` could no longer log in and nothing
 # would say so.
-if kubectl -n "$NS" get secret keycloak-demo-user >/dev/null 2>&1; then
-  echo "    Secret keycloak-demo-user already present — not regenerating it."
-else
-  kubectl -n "$NS" create secret generic keycloak-demo-user \
-    --from-literal=password="$(openssl rand -base64 18)"
-  echo "    Secret keycloak-demo-user created (random password, never printed)."
-fi
+# One Secret per user: `demo` (k8s-admins) and `viewer` (k8s-viewers). Both are referenced by
+# `placeholders` in 03-realm-lab.yaml, and the import fails outright if one is missing.
+for u in demo viewer; do
+  if kubectl -n "$NS" get secret "keycloak-${u}-user" >/dev/null 2>&1; then
+    echo "    Secret keycloak-${u}-user already present — not regenerating it."
+  else
+    kubectl -n "$NS" create secret generic "keycloak-${u}-user" \
+      --from-literal=password="$(openssl rand -base64 18)"
+    echo "    Secret keycloak-${u}-user created (random password, never printed)."
+  fi
+done
 render "${HERE}/03-realm-lab.yaml" | kubectl apply -f -
 echo "    waiting for the import job..."
 kubectl -n "$NS" wait --for=condition=Done keycloakrealmimport/lab --timeout=300s || true
@@ -120,8 +124,10 @@ echo "  Admin account : kubectl -n ${NS} get secret keycloak-initial-admin -o js
 echo "                  kubectl -n ${NS} get secret keycloak-initial-admin -o jsonpath='{.data.password}' | base64 -d ; echo"
 echo "  Realm         : lab   —   https://keycloak.${LAB_DOMAIN}/realms/lab"
 echo "  Discovery     : curl -s https://keycloak.${LAB_DOMAIN}/realms/lab/.well-known/openid-configuration | jq .issuer"
-echo "  User          : demo  (group k8s-admins)"
+echo "  Users         : demo    (group k8s-admins  -> cluster-admin through ../dex/)"
 echo "                  kubectl -n ${NS} get secret keycloak-demo-user -o jsonpath='{.data.password}' | base64 -d ; echo"
+echo "                  viewer  (group k8s-viewers -> view)"
+echo "                  kubectl -n ${NS} get secret keycloak-viewer-user -o jsonpath='{.data.password}' | base64 -d ; echo"
 echo "  Database      : kubectl -n ${NS} get cluster keycloak-db"
 echo
 echo "  /!\\ The 'keycloak-initial-admin' account is a FULL admin, in plaintext in a Secret."
