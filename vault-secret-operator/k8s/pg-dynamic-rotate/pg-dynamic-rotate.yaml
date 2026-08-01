@@ -1,11 +1,12 @@
-# Démo VSO — ROTATION DE MOT DE PASSE PostgreSQL par Vault (database static role).
+# VSO demo — PostgreSQL PASSWORD ROTATION driven by Vault (a database static role).
 #
-# Vault gère le mot de passe du user PG fixe `vault-rotate` (moteur database, static role) et
-# le fait tourner toutes les 2 min. Le VSO lit `database/static-creds/vault-rotate`, en dérive
-# une CHAÎNE DE CONNEXION complète (SecretTransformation), l'écrit dans le Secret K8s
-# `pg-rotate-creds`, et REDÉMARRE le Deployment alpine à chaque rotation (rolloutRestartTargets).
+# Vault manages the password of the fixed PG user `vault-rotate` (database engine, static
+# role) and rotates it every 2 min. VSO reads `database/static-creds/vault-rotate`, derives a
+# complete CONNECTION STRING from it (SecretTransformation), writes it into the
+# `pg-rotate-creds` K8s Secret, and RESTARTS the alpine Deployment on every rotation
+# (rolloutRestartTargets).
 #
-# Prérequis : opérateur VSO déployé + ./vault/pg-dynamic-rotate.sh exécuté (moteur database,
+# Prerequisites: the VSO operator deployed + ./vault/pg-dynamic-rotate.sh executed (database engine,
 # connexion admin CNPG, static role, policy, role k8s) + cluster CloudNativePG `pg-demo`.
 ---
 apiVersion: v1
@@ -13,14 +14,14 @@ kind: Namespace
 metadata:
   name: pg-rotate-demo
 ---
-# SA présenté à Vault. Doit matcher le role Vault pg-rotate-demo (bound_service_account_*).
+# The SA presented to Vault. Must match the pg-rotate-demo Vault role (bound_service_account_*).
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: pg-rotate
   namespace: pg-rotate-demo
 ---
-# COMMENT s'authentifier à Vault (méthode kubernetes, role pg-rotate-demo, audience vault).
+# HOW to authenticate to Vault (the kubernetes method, the pg-rotate-demo role, audience vault).
 apiVersion: secrets.hashicorp.com/v1beta1
 kind: VaultAuth
 metadata:
@@ -35,8 +36,8 @@ spec:
     audiences:
       - vault
 ---
-# Reformate les données brutes du static-creds (username/password) en variables d'ENV prêtes
-# à l'emploi : une chaîne DSN complète + les composants PG* (compatibles psql/libpq).
+# Reshapes the raw static-creds data (username/password) into ready-to-use ENV variables: a
+# complete DSN string + the PG* components (psql/libpq compatible).
 apiVersion: secrets.hashicorp.com/v1beta1
 kind: SecretTransformation
 metadata:
@@ -57,9 +58,9 @@ spec:
     PGPASSWORD:
       text: '{{ .Secrets.password }}'
 ---
-# QUOI synchroniser : le static-creds du role vault-rotate (moteur database).
-# allowStaticCreds=true => VSO traite un STATIC ROLE (mot de passe rotaté d'un user existant),
-# et se resynchronise au rythme de la rotation (ttl renvoyé par Vault).
+# WHAT to synchronise: the static-creds of the vault-rotate role (database engine).
+# allowStaticCreds=true => VSO handles a STATIC ROLE (the rotated password of an existing
+# user), and resynchronises at the pace of the rotation (the ttl returned by Vault).
 apiVersion: secrets.hashicorp.com/v1beta1
 kind: VaultDynamicSecret
 metadata:
@@ -73,18 +74,18 @@ spec:
   destination:
     create: true
     name: pg-rotate-creds
-    # Ne garde QUE les clés templatées (exclut username/password/ttl/... bruts).
+    # Keeps ONLY the templated keys (excludes the raw username/password/ttl/...).
     transformation:
       excludes:
         - ".*"
       transformationRefs:
         - name: pg-rotate-dsn
-  # Le cœur de la demande : à chaque rotation du mot de passe, VSO relance ce Deployment.
+  # The heart of the matter: on every password rotation, VSO restarts this Deployment.
   rolloutRestartTargets:
     - kind: Deployment
       name: pg-rotate-demo
 ---
-# L'appli de test : un pod alpine qui reçoit la chaîne de connexion en variables d'env.
+# The test application: an alpine pod receiving the connection string as env variables.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -103,12 +104,12 @@ spec:
       containers:
         - name: alpine
           image: alpine:3.23
-          # Au démarrage : log la DSN (mot de passe masqué) pour prouver l'injection, puis dort.
+          # At startup: logs the DSN (password masked) to prove the injection, then sleeps.
           command:
             - sh
             - -c
             - |
-              echo "[pg-rotate-demo] démarré $(date -u +%H:%M:%S) — DSN injectée :"
+              echo "[pg-rotate-demo] started $(date -u +%H:%M:%S) — injected DSN:"
               echo "  DATABASE_URL=$(echo "$DATABASE_URL" | sed 's/:[^:@]*@/:****@/')"
               echo "  PGUSER=$PGUSER PGDATABASE=$PGDATABASE PGHOST=$PGHOST"
               exec sleep infinity

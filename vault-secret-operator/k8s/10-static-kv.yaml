@@ -1,6 +1,6 @@
-# VaultStaticSecret : synchronise un secret KV-v2 -> Secret Kubernetes.
-# Cas d'usage : mots de passe, clés d'API, config sensible qui change rarement.
-# VSO relit Vault toutes les refreshAfter et met à jour le Secret si la valeur a changé (drift).
+# VaultStaticSecret: synchronises a KV-v2 secret -> a Kubernetes Secret.
+# Use case: passwords, API keys, sensitive configuration that rarely changes.
+# VSO re-reads Vault every refreshAfter and updates the Secret if the value changed (drift).
 apiVersion: secrets.hashicorp.com/v1beta1
 kind: VaultStaticSecret
 metadata:
@@ -9,19 +9,19 @@ metadata:
 spec:
   vaultAuthRef: vault-auth-static     # -> role Vault vso-static -> policy vso-static-kv
   type: kv-v2                         # kv-v1 possible aussi
-  mount: kvv2                         # mount côté Vault (cf. vault/00-secrets-engines.sh)
-  path: demo/app                      # chemin du secret (kvv2/demo/app)
-  # version: 2                        # version KV-v2 précise (défaut : la dernière)
-  refreshAfter: 60s                   # fréquence de resync (proportionnel à la sensibilité)
-  hmacSecretData: true                # détecte la dérive sans logguer les valeurs en clair
-  # Redémarre l'app quand le Secret change (sinon l'ancienne valeur reste en mémoire du process).
+  mount: kvv2                         # mount on the Vault side (see vault/00-secrets-engines.sh)
+  path: demo/app                      # path of the secret (kvv2/demo/app)
+  # version: 2                        # a specific KV-v2 version (default: the latest)
+  refreshAfter: 60s                   # resync frequency (proportional to the sensitivity)
+  hmacSecretData: true                # detects drift without logging the values in plaintext
+  # Restarts the app when the Secret changes (otherwise the old value stays in the process' memory).
   rolloutRestartTargets:
     - kind: Deployment
       name: demo-app
   destination:
-    create: true                      # VSO crée le Secret K8s
-    name: static-kv                   # nom du Secret produit
-    # type: Opaque                    # défaut
-    # transformation:                 # cf. 40-secrettransformation.yaml pour reformater
+    create: true                      # VSO creates the K8s Secret
+    name: static-kv                   # name of the produced Secret
+    # type: Opaque                    # the default
+    # transformation:                 # see 40-secrettransformation.yaml to reshape it
     #   transformationRefs:
     #     - name: app-env

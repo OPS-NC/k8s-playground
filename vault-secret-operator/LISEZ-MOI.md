@@ -127,7 +127,7 @@ démonstration, pour que les deux labs puissent coexister dans un même Vault.
 | Policy dérivée | `talos-lab-nginx-test-vault` | `kubeadm-lab-nginx-test-vault` |
 
 Les fichiers versionnés portent le marqueur **NEUTRE `lab-kv`** ; il est substitué à la volée,
-exactement comme le domaine (fonction `rendre` de `lib/common.sh`, et `sed` dans
+exactement comme le domaine (fonction `render` de `lib/common.sh`, et `sed` dans
 `vault/lab-kv.sh`). Tout le reste — VSO, VaultConnection, VaultAuth, policies `vso-*`, rotation
 PostgreSQL, PKI — est identique sur les deux distributions.
 
@@ -246,7 +246,7 @@ kubectl apply -f vault-secret-operator/k8s/nginx-test-vault/nginx-test-vault.yam
 
 # La rotation, en direct : on change la valeur dans Vault…
 vault kv put lab-kv/nginx-test-vault/config \
-  APP_GREETING="Bonjour depuis Vault" APP_COLOR=green APP_SECRET_TOKEN=v2
+  APP_GREETING="Hello from Vault" APP_COLOR=green APP_SECRET_TOKEN=v2
 # …VSO resync (refreshAfter 30s) -> Secret mis à jour -> rolloutRestartTargets relance le Deployment
 kubectl -n nginx-test-vault rollout status deploy/nginx-test-vault
 ```

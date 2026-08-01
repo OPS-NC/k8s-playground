@@ -8,16 +8,16 @@ spec:
   provider:
     type: Kubernetes
     kubernetes:
-      # Plan de DONNÉES (les pods envoy qui portent réellement le trafic), à ne pas confondre
-      # avec le contrôleur `envoy-gateway` posé par le chart.
+      # The DATA plane (the envoy pods that actually carry the traffic), not to be confused
+      # with the `envoy-gateway` controller laid down by the chart.
       #
-      # 2 réplicas et pas 1 : ce Deployment est le point de passage unique de TOUTES les UI du
-      # lab (une seule IP LoadBalancer, .200). À 1 réplica, la mort de ce pod — reschedule,
-      # reboot de node, ou chaos-kube/ qui tire au sort toutes les heures — coupe
-      # l'intégralité des UI le temps du redémarrage. À 2, le Service garde un endpoint prêt.
+      # 2 replicas and not 1: this Deployment is the single point of passage of ALL the lab's
+      # UIs (one single LoadBalancer IP, .200). With 1 replica, losing that pod — a reschedule,
+      # a node reboot, or chaos-kube/ drawing lots every hour — cuts every UI for the duration
+      # of the restart. With 2, the Service keeps a ready endpoint.
       #
-      # Le coût est négligeable (un envoy au repos ~50 Mio), et les deux pods se partagent la
-      # même IP : rien à changer côté DNS ni côté HTTPRoute.
+      # The cost is negligible (an idle envoy is ~50 MiB), and both pods share the same IP:
+      # nothing to change on the DNS side or on the HTTPRoute side.
       envoyDeployment:
         replicas: 2
       envoyService:
@@ -42,22 +42,22 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: main-gateway
-  namespace: envoy-gateway-system      # Gateway + cert wildcard hors du ns default
+  namespace: envoy-gateway-system      # Gateway + wildcard cert outside the default ns
   annotations:
-    # ⚠️ Ce bloc `annotations:` entier n'existe QUE sur le chemin ACME. Le défaut du lab est
-    # SELF_SIGNED=true : platform-up.sh RETIRE alors ces lignes, et remplit lui-même le Secret
-    # ci-dessous avec un wildcard signé openssl (cf. self-signed/). Laisser l'annotation
-    # ferait reprendre la main à cert-manager sur ce Secret dès qu'il serait installé.
+    # ⚠️ This whole `annotations:` block only exists on the ACME path. The lab default is
+    # SELF_SIGNED=true: platform-up.sh then REMOVES these lines and fills the Secret below
+    # itself, with a wildcard signed by openssl (see self-signed/). Leaving the annotation in
+    # place would hand this Secret back to cert-manager the moment it got installed.
     #
-    # Avec SELF_SIGNED=false, cert-manager émet et renouvelle le wildcard tout seul (DNS-01
-    # Cloudflare) : le Certificate + le Secret wildcard-lab-example-io-tls sont créés
-    # dans CE namespace.
+    # With SELF_SIGNED=false, cert-manager issues and renews the wildcard on its own
+    # (Cloudflare DNS-01): the Certificate + the wildcard-lab-example-io-tls Secret are
+    # created in THIS namespace.
     #
-    # Défaut STAGING volontaire : Let's Encrypt production plafonne à 5 certificats par
-    # semaine et par jeu d'identifiants, or le wildcard ne vit que dans etcd — chaque
-    # `vagrant destroy` en brûle donc un. Au 6e rebuild d'une même semaine, plus de TLS
-    # pendant des heures. platform-up.sh remplace cette valeur par `letsencrypt-prod`
-    # quand LAB_ACME_ISSUER=prod (cf. lab.env.example).
+    # STAGING default on purpose: Let's Encrypt production caps at 5 certificates per week per
+    # set of identifiers, and the wildcard only lives in etcd — so every `vagrant destroy`
+    # burns one. On the 6th rebuild in a single week, no TLS for hours. platform-up.sh
+    # replaces this value with `letsencrypt-prod` when LAB_ACME_ISSUER=prod (see
+    # lab.env.example).
     cert-manager.io/cluster-issuer: letsencrypt-staging
 spec:
   gatewayClassName: envoy
@@ -71,17 +71,16 @@ spec:
     - name: https
       protocol: HTTPS
       port: 443
-      # Domaine NEUTRE (dépôt public) : platform-up.sh le remplace par LAB_DOMAIN (lab.env),
-      # et le nom du Secret TLS ci-dessous suit (wildcard-<domaine-en-tirets>-tls).
+      # NEUTRAL domain (public repository): platform-up.sh replaces it with LAB_DOMAIN
+      # (lab.env), and the TLS Secret name below follows (wildcard-<dashed-domain>-tls).
       hostname: "*.lab.example.io"
       tls:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            # Rempli par cert-manager (SELF_SIGNED=false) OU par selfsigned-up.sh
-            # (SELF_SIGNED=true, le défaut) : même nom de Secret dans les deux cas.
+            # Filled by cert-manager (SELF_SIGNED=false) OR by selfsigned-up.sh
+            # (SELF_SIGNED=true, the default): the same Secret name in both cases.
             name: wildcard-lab-example-io-tls
       allowedRoutes:
         namespaces:
           from: All
-

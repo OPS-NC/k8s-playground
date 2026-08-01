@@ -1,21 +1,20 @@
-# rbac.yaml — ce qui donne un SENS aux groupes Keycloak.
+# rbac.yaml — what gives the Keycloak groups their MEANING.
 #
-# Kubernetes n'a pas d'utilisateurs : il a des chaînes de caractères que l'authentifieur
-# lui remonte. Après la chaîne Keycloak → Dex → apiserver, l'utilisateur `demo`, membre
-# du groupe `k8s-admins`, arrive ici sous la forme :
+# Kubernetes has no users: it has strings the authenticator hands it. After the
+# Keycloak → Dex → apiserver chain, the user `demo`, member of the `k8s-admins` group, arrives
+# here as:
 #
-#     user   = oidc:demo@lab.example.io      (claim `email`, préfixé)
-#     groups = [oidc:k8s-admins]             (claim `groups`, préfixé)
+#     user   = oidc:demo@lab.example.io      (the `email` claim, prefixed)
+#     groups = [oidc:k8s-admins]             (the `groups` claim, prefixed)
 #
-# Le préfixe `oidc:` vient de `--oidc-username-prefix` / `--oidc-groups-prefix` posés sur
-# l'apiserver (cf. apiserver-oidc.talos.yaml / apiserver-oidc.kubeadm.yaml). Il n'est PAS
-# décoratif : sans lui, un annuaire qui déclare un groupe `system:masters` ou un
-# utilisateur `system:kube-scheduler` usurperait une identité interne du cluster. Toute
-# liaison RBAC doit donc porter ce préfixe — et si tu changes le préfixe, change-le ici.
+# The `oidc:` prefix comes from `--oidc-username-prefix` / `--oidc-groups-prefix` set on the
+# apiserver (see apiserver-oidc.talos.yaml / apiserver-oidc.kubeadm.yaml). It is NOT
+# decorative: without it, a directory declaring a `system:masters` group or a
+# `system:kube-scheduler` user would impersonate an internal cluster identity. Every RBAC
+# binding must therefore carry that prefix — and if you change the prefix, change it here.
 #
-# Deux niveaux seulement, volontairement : `cluster-admin` pour la démonstration, `view`
-# pour montrer qu'un même montage OIDC sert aussi à donner un accès en LECTURE sans
-# distribuer le moindre certificat client.
+# Two levels only, on purpose: `cluster-admin` for the demonstration, `view` to show that the
+# same OIDC setup also grants READ access without handing out a single client certificate.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -24,8 +23,8 @@ metadata:
   labels:
     app.kubernetes.io/part-of: dex
 subjects:
-  # `kind: Group` et non `User` : c'est l'appartenance qui donne le droit, pas la
-  # personne. Ajouter quelqu'un se fait dans Keycloak, jamais avec kubectl.
+  # `kind: Group` and not `User`: it is membership that grants the right, not the person.
+  # Adding somebody is done in Keycloak, never with kubectl.
   - kind: Group
     name: oidc:k8s-admins
     apiGroup: rbac.authorization.k8s.io
@@ -45,8 +44,8 @@ subjects:
     name: oidc:k8s-viewers
     apiGroup: rbac.authorization.k8s.io
 roleRef:
-  # `view` est un ClusterRole intégré : lecture seule sur la plupart des ressources
-  # d'un namespace, MAIS il ne donne accès ni aux Secrets ni aux ressources de cluster.
+  # `view` is a built-in ClusterRole: read-only on most resources of a namespace, BUT it
+  # grants access neither to Secrets nor to cluster-scoped resources.
   kind: ClusterRole
   name: view
   apiGroup: rbac.authorization.k8s.io

@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 #
-# vault-up.sh — installe HashiCorp Vault en HA (Raft intégré, 3 réplicas) sur le cluster
-# Talos ou kubeadm, stockage Longhorn, et expose UI/API en HTTPS sous vault.$LAB_DOMAIN.
+# vault-up.sh — installs HashiCorp Vault in HA (integrated Raft, 3 replicas) on the Talos or
+# kubeadm cluster, on Longhorn storage, and exposes the UI/API over HTTPS at vault.$LAB_DOMAIN.
 #
-#   ./vault-cluster/vault-up.sh <talos|kubeadm>   (ou ./install.sh <distro> vault)
+#   ./vault-cluster/vault-up.sh <talos|kubeadm>   (or ./install.sh <distro> vault)
 #
-# Addon à part : platform-up.sh ne pose que Cilium + Envoy + metrics + le wildcard TLS.
+# Standalone add-on: platform-up.sh only lays down Cilium + Envoy + metrics + the wildcard TLS.
 #
-# ⚠️ SECRETS. `vault operator init` produit 5 clés de descellement + le token root. Ce
-# script les écrit dans `_out/vault-init.json` (répertoire gitignoré, fichier en 0600) et
-# ne les affiche JAMAIS — ni sur stdout, ni dans un log. C'est le seul exemplaire : perdre
-# ce fichier = Vault définitivement inaccessible. Le sortir de `_out/` = le sortir du
-# gitignore, donc risque de commit.
+# ⚠️ SECRETS. `vault operator init` produces 5 unseal keys + the root token. This script
+# writes them to `_out/vault-init.json` (a gitignored directory, file mode 0600) and NEVER
+# prints them — not on stdout, not in a log. It is the only copy: losing that file means Vault
+# is permanently inaccessible. Moving it out of `_out/` means moving it out of the gitignore,
+# hence a risk of committing it.
 #
-# Descellement : le chart repart TOUJOURS scellé après un redémarrage de pod (upgrade,
-# reboot du node, `vagrant halt`/`vagrant up`, reset Talos). Ce script redescelle ce qui doit l'être à chaque passage, tant
-# que `_out/vault-init.json` est là. Pas d'auto-unseal dans ce lab (il
-# faudrait un Transit externe ou un KMS cloud) : c'est donc à relancer après un reboot.
+# Unsealing: the chart ALWAYS comes back sealed after a pod restart (upgrade, node reboot,
+# `vagrant halt`/`vagrant up`, Talos reset). This script re-unseals whatever needs it on every
+# run, as long as `_out/vault-init.json` is there. There is no auto-unseal in this lab (it
+# would need an external Transit engine or a cloud KMS): so it has to be re-run after a reboot.
 #
-# Prérequis : Longhorn (SC `longhorn`), plateforme en place (main-gateway + wildcard), jq.
-# Idempotent : n'initialise que si Vault ne l'est pas, ne descelle que les pods scellés.
+# Prerequisites: Longhorn (SC `longhorn`), platform in place (main-gateway + wildcard), jq.
+# Idempotent: initialises only if Vault is not, unseals only the sealed pods.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,119 +27,120 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${HERE}/../lib/common.sh"
 k8s_init "$@"
 
-# --- Versions épinglées (overridables par variable d'env) -------------------
+# --- Pinned versions (overridable through an environment variable) -----------
 VAULT_CHART_VERSION="${VAULT_CHART_VERSION:-0.34.0}"
 NS="${NS:-vault}"
-REPLICAS=3                       # aligné sur values.yaml (server.ha.replicas)
+REPLICAS=3                       # aligned with values.yaml (server.ha.replicas)
 INIT_FILE="${INIT_FILE:-${LAB_DIR}/_out/vault-init.json}"
 
-# --- Pré-requis -------------------------------------------------------------
+# --- Prerequisites ----------------------------------------------------------
 need kubectl helm jq
-exiger_apiserver
-# La StorageClass `longhorn` porte les 3 PVC Raft : sans elle les pods restent Pending.
-exiger_sc longhorn
+require_apiserver
+# The `longhorn` StorageClass carries the 3 Raft PVCs: without it the pods stay Pending.
+require_sc longhorn
 
-# `vault status` sort en 2 quand Vault est scellé : `|| true` sinon `set -e` tue le script.
+# `vault status` exits 2 when Vault is sealed: hence `|| true`, otherwise `set -e` kills the
+# script.
 vault_status() { kubectl -n "$NS" exec "$1" -- vault status -format=json 2>/dev/null || true; }
-# PIÈGE jq : l'opérateur `//` considère `false` comme vide, exactement comme `null`.
-# `.sealed // true` renvoie donc `true` sur un pod DESCELLÉ (.sealed=false) — on croyait
-# le pod scellé, et le `unseal` suivant échouait en 400 « already unsealed ». D'où
-# `tostring`, qui distingue false de null. Renvoie "true" | "false" | "null".
-champ_vault() { vault_status "$1" | jq -r ".$2 | tostring" 2>/dev/null || echo null; }
-# Attente BORNÉE du `retry_join` Raft : vault-1/2 démarrent NON initialisés et ne le
-# deviennent qu'après avoir rejoint le leader descellé. Les desceller avant ça échoue
-# en 400 « Vault is not initialized » — c'est la course qui a cassé le premier passage.
-attendre_initialise() {
-  local pod="$1" limite="${2:-180}" t=0
-  until [ "$(champ_vault "$pod" initialized)" = "true" ]; do
-    t=$((t + 5)); [ "$t" -ge "$limite" ] && { echo "ERREUR : ${pod} n'a pas rejoint le Raft après ${limite}s." >&2
-      echo "        Vérifier les retry_join : kubectl -n ${NS} logs ${pod} | tail -30" >&2; exit 1; }
+# jq TRAP: the `//` operator treats `false` as empty, exactly like `null`. `.sealed // true`
+# therefore returns `true` on an UNSEALED pod (.sealed=false) — we thought the pod was sealed,
+# and the following `unseal` failed with a 400 "already unsealed". Hence `tostring`, which
+# tells false apart from null. Returns "true" | "false" | "null".
+vault_field() { vault_status "$1" | jq -r ".$2 | tostring" 2>/dev/null || echo null; }
+# BOUNDED wait for the Raft `retry_join`: vault-1/2 start UNinitialised and only become
+# initialised after joining the unsealed leader. Unsealing them before that fails with a 400
+# "Vault is not initialized" — the race that broke the very first run.
+wait_initialised() {
+  local pod="$1" limit="${2:-180}" t=0
+  until [ "$(vault_field "$pod" initialized)" = "true" ]; do
+    t=$((t + 5)); [ "$t" -ge "$limit" ] && { echo "ERROR: ${pod} did not join the Raft after ${limit}s." >&2
+      echo "        Check the retry_join: kubectl -n ${NS} logs ${pod} | tail -30" >&2; exit 1; }
     sleep 5
   done
 }
-# Attente BORNÉE d'un pod à l'état Running (les pods Vault ne deviennent JAMAIS Ready
-# tant qu'ils sont scellés : attendre `condition=Ready` boucherait ici pour rien).
-attendre_running() {
-  local pod="$1" limite="${2:-180}" t=0
+# BOUNDED wait for a pod to reach Running (Vault pods NEVER become Ready while sealed: waiting
+# for `condition=Ready` would block here for nothing).
+wait_running() {
+  local pod="$1" limit="${2:-180}" t=0
   until [ "$(kubectl -n "$NS" get pod "$pod" -o jsonpath='{.status.phase}' 2>/dev/null)" = "Running" ]; do
-    t=$((t + 5)); [ "$t" -ge "$limite" ] && { echo "ERREUR : ${pod} pas Running après ${limite}s." >&2; \
+    t=$((t + 5)); [ "$t" -ge "$limit" ] && { echo "ERROR: ${pod} not Running after ${limit}s." >&2; \
       kubectl -n "$NS" get pod "$pod" >&2 || true; exit 1; }
     sleep 5
   done
 }
 
 # ============================================================================
-log "[1/4] Chart Vault ${VAULT_CHART_VERSION} (HA Raft ${REPLICAS} réplicas, SC longhorn)"
+log "[1/4] Vault chart ${VAULT_CHART_VERSION} (HA Raft ${REPLICAS} replicas, SC longhorn)"
 helm repo add hashicorp https://helm.releases.hashicorp.com >/dev/null 2>&1 || true
 helm repo update hashicorp >/dev/null
-# PAS de --wait : les pods restent `0/1 Running` (readiness en échec) tant que Vault
-# n'est ni initialisé ni descellé — `--wait` expirerait systématiquement.
+# NO --wait: the pods stay `0/1 Running` (readiness failing) as long as Vault is neither
+# initialised nor unsealed — `--wait` would time out every single time.
 helm upgrade --install vault hashicorp/vault \
   --namespace "$NS" --create-namespace \
   --version "${VAULT_CHART_VERSION}" \
   --values "${HERE}"/values.yaml
-attendre_running vault-0 300
+wait_running vault-0 300
 
 # ============================================================================
-log "[2/4] Initialisation (5 clés, seuil 3)"
-if [ "$(champ_vault vault-0 initialized)" = "true" ]; then
-  echo "    Vault est déjà initialisé — on ne touche à rien."
-  [ -f "$INIT_FILE" ] || echo "    /!\\ ${INIT_FILE} absent : le descellement ci-dessous sera à faire à la main."
+log "[2/4] Initialisation (5 keys, threshold 3)"
+if [ "$(vault_field vault-0 initialized)" = "true" ]; then
+  echo "    Vault is already initialised — we touch nothing."
+  [ -f "$INIT_FILE" ] || echo "    /!\\ ${INIT_FILE} missing: the unsealing below will have to be done by hand."
 else
-  [ -f "$INIT_FILE" ] && { echo "ERREUR : Vault n'est pas initialisé mais ${INIT_FILE} existe déjà." >&2
-    echo "        Écraser ce fichier perdrait les clés qu'il contient. Déplace-le puis relance." >&2
+  [ -f "$INIT_FILE" ] && { echo "ERROR: Vault is not initialised but ${INIT_FILE} already exists." >&2
+    echo "        Overwriting that file would lose the keys it holds. Move it, then re-run." >&2
     exit 1; }
   mkdir -p "$(dirname "$INIT_FILE")"
-  # umask AVANT la redirection : le fichier naît en 0600, jamais lisible en 0644 même
-  # une fraction de seconde. Les clés ne transitent pas par stdout.
+  # umask BEFORE the redirection: the file is born 0600, never readable as 0644 even for a
+  # fraction of a second. The keys never transit through stdout.
   ( umask 077 && kubectl -n "$NS" exec vault-0 -- \
       vault operator init -key-shares=5 -key-threshold=3 -format=json > "$INIT_FILE" )
-  echo "    Clés + token root écrits dans ${INIT_FILE} (0600, _out/ est gitignoré)."
-  echo "    C'est le SEUL exemplaire : sauvegarde-le hors du dépôt."
+  echo "    Keys + root token written to ${INIT_FILE} (0600, _out/ is gitignored)."
+  echo "    It is the ONLY copy: back it up outside the repository."
 fi
 
 # ============================================================================
-log "[3/4] Descellement des ${REPLICAS} pods"
+log "[3/4] Unsealing the ${REPLICAS} pods"
 if [ -f "$INIT_FILE" ]; then
   for n in $(seq 0 $((REPLICAS - 1))); do
     pod="vault-${n}"
-    # vault-1/2 n'existent qu'après que le StatefulSet ait déroulé : on les attend,
-    # puis on attend qu'ils aient rejoint le Raft (sinon 400 « not initialized »).
-    attendre_running "$pod" 300
-    attendre_initialise "$pod" 300
-    if [ "$(champ_vault "$pod" sealed)" = "false" ]; then
-      echo "    ${pod} : déjà descellé"
+    # vault-1/2 only exist once the StatefulSet has rolled out: we wait for them, then wait
+    # for them to have joined the Raft (otherwise a 400 "not initialized").
+    wait_running "$pod" 300
+    wait_initialised "$pod" 300
+    if [ "$(vault_field "$pod" sealed)" = "false" ]; then
+      echo "    ${pod}: already unsealed"
       continue
     fi
-    # 3 clés distinctes = le seuil. `>/dev/null` : la sortie de `unseal` réaffiche
-    # l'état du seau, pas la clé — mais on ne prend aucun risque avec ce flux.
+    # 3 distinct keys = the threshold. `>/dev/null`: the output of `unseal` re-prints the seal
+    # status, not the key — but we take no chances with that stream.
     for i in 0 1 2; do
       kubectl -n "$NS" exec "$pod" -- vault operator unseal \
         "$(jq -r ".unseal_keys_b64[$i]" "$INIT_FILE")" >/dev/null
     done
-    echo "    ${pod} : descellé"
+    echo "    ${pod}: unsealed"
   done
   kubectl -n "$NS" wait --for=condition=Ready pod -l app.kubernetes.io/name=vault --timeout=180s
 else
-  echo "    ${INIT_FILE} absent : descellement manuel requis (3 clés sur 5) —"
-  echo "      kubectl -n ${NS} exec vault-0 -- vault operator unseal <clé>"
+  echo "    ${INIT_FILE} missing: manual unsealing required (3 keys out of 5) —"
+  echo "      kubectl -n ${NS} exec vault-0 -- vault operator unseal <key>"
 fi
 
 # ============================================================================
 log "[4/4] HTTPRoute vault.${LAB_DOMAIN}"
-# Le manifeste versionné porte le domaine neutre : substitué à la volée, comme
-# partout ailleurs dans k8s-playground/ (cf. ../README.md).
-rendre "${HERE}"/httproute.yaml | kubectl apply -f -
+# The versioned manifest carries the neutral domain: substituted on the fly, as everywhere
+# else in k8s-playground/ (see ../README.md).
+render "${HERE}"/httproute.yaml | kubectl apply -f -
 
 # ============================================================================
-log "Vault installé."
+log "Vault installed."
 echo "  UI/API   : https://vault.${LAB_DOMAIN}"
-echo "  Stockage : Raft intégré, 3 PVC de 2Gi sur la SC longhorn"
-echo "  Token root (NE PAS le coller ailleurs) :"
+echo "  Storage  : integrated Raft, 3 PVCs of 2Gi on the longhorn SC"
+echo "  Root token (do NOT paste it anywhere else):"
 echo "    jq -r .root_token ${INIT_FILE}"
-echo "  Depuis l'hôte :"
+echo "  From the host:"
 echo "    export VAULT_ADDR=https://vault.${LAB_DOMAIN}"
 echo "    export VAULT_TOKEN=\$(jq -r .root_token ${INIT_FILE})"
 echo
-echo "  /!\\ Pas d'auto-unseal : après un reboot ou un upgrade, les pods repartent SCELLÉS."
-echo "      Relancer ce script les redescelle (tant que ${INIT_FILE} existe)."
+echo "  /!\\ No auto-unseal: after a reboot or an upgrade the pods come back SEALED."
+echo "      Re-running this script unseals them again (as long as ${INIT_FILE} exists)."

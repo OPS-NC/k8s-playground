@@ -1,22 +1,21 @@
 # local-path-storage.yaml — Rancher local-path-provisioner v0.0.36.
 #
-# Basé sur le manifeste upstream :
+# Based on the upstream manifest:
 #   https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.30/deploy/local-path-storage.yaml
-# Deux modifications par rapport à l'upstream (cf. README.md) :
-#   1. Namespace en PodSecurity `privileged` : les helper-pods montent du hostPath.
-#      INDISPENSABLE sur Talos (défaut cluster `baseline` : sans ces labels, le
-#      Deployment existe mais AUCUN pod n'est créé). Sur kubeadm l'admission PodSecurity
-#      n'applique rien par défaut au niveau cluster : les labels ne débloquent rien
-#      aujourd'hui, on les garde parce qu'ils documentent l'intention et qu'ils protègent
-#      le jour où l'admission est durcie (Kyverno, un `AdmissionConfiguration` par défaut,
-#      un cluster managé…).
-#   2. StorageClass `local-path` marquée par défaut (annotation is-default-class).
+# Two changes compared with upstream (see README.md):
+#   1. The namespace is PodSecurity `privileged`: the helper pods mount hostPaths.
+#      MANDATORY on Talos (cluster default `baseline`: without those labels the Deployment
+#      exists but NO pod is created). On kubeadm, PodSecurity admission enforces nothing
+#      cluster-wide by default: the labels unlock nothing today, we keep them because they
+#      document the intent and because they protect the day admission is hardened (Kyverno,
+#      a default `AdmissionConfiguration`, a managed cluster…).
+#   2. The `local-path` StorageClass is marked as the default (is-default-class annotation).
 #
-# ⚠️ CHEMIN DE STOCKAGE PILOTÉ PAR LE PROFIL DE DISTRIBUTION (`LOCAL_PATH_DIR`).
-# Ce fichier porte le chemin de l'AMONT, `/opt/local-path-provisioner` (cas kubeadm : sur
-# Debian 13 `/opt` est inscriptible et le helper-pod le crée sans rien demander à
-# personne). `local-path-up.sh` le remplace à la volée par `/var/local-path-provisioner`
-# sur Talos, où `/` et `/etc` sont en lecture seule et où seul `/var` est inscriptible.
+# ⚠️ STORAGE PATH DRIVEN BY THE DISTRIBUTION PROFILE (`LOCAL_PATH_DIR`).
+# This file carries the UPSTREAM path, `/opt/local-path-provisioner` (the kubeadm case: on
+# Debian 13 `/opt` is writable and the helper pod creates it without asking anyone).
+# `local-path-up.sh` replaces it on the fly with `/var/local-path-provisioner` on Talos, where
+# `/` and `/etc` are read-only and only `/var` is writable.
 ---
 apiVersion: v1
 kind: Namespace
@@ -141,7 +140,7 @@ kind: StorageClass
 metadata:
   name: local-path
   annotations:
-    # StorageClass par défaut du cluster : les PVC sans storageClassName l'utilisent.
+    # The cluster's default StorageClass: PVCs with no storageClassName use it.
     storageclass.kubernetes.io/is-default-class: "true"
 provisioner: rancher.io/local-path
 volumeBindingMode: WaitForFirstConsumer

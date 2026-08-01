@@ -1,28 +1,28 @@
-# apiserver.yaml — la CR `APIServer` de l'opérateur Tigera : elle déclenche le déploiement
-# du `calico-apiserver`, qui expose le groupe `projectcalico.org/v3`. C'est ce qui permet de
-# lire et écrire les objets Calico (`IPPool`, `NetworkPolicy`/`GlobalNetworkPolicy`, tiers…)
-# directement au `kubectl`, sans installer `calicoctl`.
+# apiserver.yaml — the Tigera operator's `APIServer` CR: it triggers the deployment of the
+# `calico-apiserver`, which exposes the `projectcalico.org/v3` group. That is what makes it
+# possible to read and write Calico objects (`IPPool`, `NetworkPolicy`/`GlobalNetworkPolicy`,
+# tiers…) straight from `kubectl`, without installing `calicoctl`.
 #
-# POURQUOI CE FICHIER EXISTE — le même problème d'amorçage que installation.yaml, en pire :
+# WHY THIS FILE EXISTS — the same bootstrap problem as installation.yaml, only worse:
 #
-# Le chart `tigera-operator` rend cette CR lui-même quand `apiServer.enabled=true` (son
-# défaut, cf. templates/crs/custom-resources.yaml). Mais le chart ne livre AUCUN dossier
-# `crds/` : c'est l'opérateur qui crée les CRD `operator.tigera.io` à son démarrage
-# (`-manage-crds=true`). Sur un cluster neuf, Helm essaie donc de poser un objet `APIServer`
-# alors que la CRD `apiservers.operator.tigera.io` n'existe pas encore, et l'installation
-# échoue net, AVANT même de créer le namespace :
+# The `tigera-operator` chart renders this CR itself when `apiServer.enabled=true` (its
+# default, see templates/crs/custom-resources.yaml). But the chart ships NO `crds/` directory:
+# it is the operator that creates the `operator.tigera.io` CRDs at startup
+# (`-manage-crds=true`). On a fresh cluster, Helm therefore tries to lay down an `APIServer`
+# object while the `apiservers.operator.tigera.io` CRD does not exist yet, and the install
+# fails outright, BEFORE the namespace is even created:
 #
 #   Error: unable to build kubernetes objects from release manifest: resource mapping not
 #   found for name: "default" ... no matches for kind "APIServer" in version
 #   "operator.tigera.io/v1" — ensure CRDs are installed first
 #
-# C'est exactement la raison pour laquelle le script coupe déjà `installation`, `goldmane` et
-# `whisker` : les quatre CR du chart sont dans le même cas. `apiServer` était resté à `true`,
-# ce qui rendait l'installation impossible sur un cluster fraîchement bootstrapé.
+# That is exactly why the script already turns off `installation`, `goldmane` and `whisker`:
+# all four chart CRs are in the same situation. `apiServer` had been left at `true`, which made
+# the install impossible on a freshly bootstrapped cluster.
 #
-# La CR est donc sortie du chart (`--set apiServer.enabled=false`) et appliquée par
-# calico-up.sh APRÈS l'attente des CRD — même mécanique et même propriétaire unique
-# (kubectl, pas Helm) que installation.yaml.
+# The CR is therefore taken out of the chart (`--set apiServer.enabled=false`) and applied by
+# calico-up.sh AFTER waiting for the CRDs — the same mechanism and the same single owner
+# (kubectl, not Helm) as installation.yaml.
 ---
 apiVersion: operator.tigera.io/v1
 kind: APIServer

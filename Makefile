@@ -1,11 +1,11 @@
-# Makefile — les quelques commandes locales de ce dépôt.
+# Makefile — the handful of local commands of this repository.
 #
-# Ce dépôt ne monte aucun cluster (c'est le rôle des labs Vagrant voisins) : il n'y a donc
-# ici que la génération de la documentation et les validations qui tournent sans cluster.
+# This repository brings up no cluster (that is the neighbouring Vagrant labs' job): all it
+# holds is documentation generation and the validations that run without a cluster.
 #
-#   make            la liste des cibles
-#   make docs       régénère docs/index.html depuis tous les README (EN + miroirs FR)
-#   make validate   tout valider (shell, YAML, doc) — sans cluster
+#   make            the list of targets
+#   make docs       regenerates docs/index.html from every README (EN + FR mirrors)
+#   make validate   validate everything (shell, YAML, docs) — without a cluster
 
 SHELL   := /usr/bin/env bash
 DOCS_OUT := docs/index.html
@@ -13,36 +13,36 @@ DOCS_OUT := docs/index.html
 .DEFAULT_GOAL := help
 .PHONY: help docs docs-open docs-check validate validate-shell validate-yaml validate-docs
 
-help: ## Affiche cette aide
+help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1;36m%-16s\033[0m %s\n", $$1, $$2}'
 
 # --- Documentation ----------------------------------------------------------
-# `uv` installe les dépendances déclarées en PEP 723 dans build.py : rien à installer
-# à la main, rien à versionner.
-docs: ## Régénère docs/index.html depuis tous les README (EN + miroirs FR)
+# `uv` installs the dependencies declared through PEP 723 in build.py: nothing to install by
+# hand, nothing to version.
+docs: ## Regenerate docs/index.html from every README (EN + FR mirrors)
 	@uv run docs/build.py
 
-docs-open: docs ## Régénère puis ouvre la doc dans le navigateur
+docs-open: docs ## Regenerate then open the documentation in a browser
 	@xdg-open $(DOCS_OUT) >/dev/null 2>&1 || open $(DOCS_OUT)
 
-docs-check: ## Vérifie que chaque lien et chaque ancre interne résout (comme la CI)
+docs-check: ## Check that every internal link and anchor resolves (like CI does)
 	@uv run docs/build.py --strict --out /tmp/k8s-playground-doc.html >/dev/null
-	@echo "✅ liens et ancres OK"
+	@echo "✅ links and anchors OK"
 
-# --- Validations sans cluster -----------------------------------------------
-validate-shell: ## Syntaxe de tous les scripts shell du dépôt
+# --- Validations without a cluster ------------------------------------------
+validate-shell: ## Syntax of every shell script in the repository
 	@fail=0; for f in $$(find . -name '*.sh' -not -path './.git/*'); do \
 	  bash -n "$$f" || { echo "❌ $$f"; fail=1; }; done; \
-	  [ $$fail -eq 0 ] && echo "✅ syntaxe shell OK" || exit 1
+	  [ $$fail -eq 0 ] && echo "✅ shell syntax OK" || exit 1
 
-validate-yaml: ## Analyse syntaxique de tous les manifestes YAML (kubectl, sans cluster)
+validate-yaml: ## Parse every YAML manifest (kubectl, without a cluster)
 	@fail=0; for f in $$(find . \( -name '*.yaml' -o -name '*.yml' \) -not -path './.git/*'); do \
 	  out=$$(kubectl create --dry-run=client -f "$$f" -o name 2>&1 >/dev/null); \
 	  case "$$out" in *"error parsing"*|*"error converting"*) echo "❌ $$f"; fail=1;; esac; \
 	done; [ $$fail -eq 0 ] && echo "✅ YAML OK" || exit 1
 
-validate-docs: docs-check ## Alias de docs-check (nom utilisé par la CI des labs)
+validate-docs: docs-check ## Alias of docs-check (the name the labs' CI uses)
 
-validate: validate-shell validate-yaml validate-docs ## Tout valider (sans cluster)
-	@echo "✅ Validation complète OK"
+validate: validate-shell validate-yaml validate-docs ## Validate everything (without a cluster)
+	@echo "✅ Full validation OK"

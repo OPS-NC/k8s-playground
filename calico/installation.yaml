@@ -1,126 +1,125 @@
-# installation.yaml — la CR `Installation` de l'opérateur Tigera : c'est ELLE qui décrit
-# le CNI Calico à déployer (l'opérateur, seul, ne fait rien tant qu'elle n'existe pas).
+# installation.yaml — the Tigera operator's `Installation` CR: THIS is what describes the
+# Calico CNI to deploy (the operator on its own does nothing until it exists).
 #
-# Appliquée par `calico/calico-up.sh` APRÈS le chart `tigera-operator`, parce que
-# c'est l'opérateur (`-manage-crds=true`) qui crée les CRD `operator.tigera.io` à son
-# démarrage : appliquer ce fichier trop tôt échoue sur « no matches for kind Installation ».
+# Applied by `calico/calico-up.sh` AFTER the `tigera-operator` chart, because it is the
+# operator (`-manage-crds=true`) that creates the `operator.tigera.io` CRDs at startup:
+# applying this file too early fails with "no matches for kind Installation".
 #
-# Le chart sait générer cette CR lui-même (`installation.enabled=true`, son défaut). On la
-# sort du chart (`--set installation.enabled=false` dans le script) pour une seule raison :
-# avoir UN fichier lisible et versionné, au lieu d'une pile de `--set` imbriqués — et éviter
-# que Helm et `kubectl apply` se disputent la propriété du même objet.
+# The chart can generate this CR itself (`installation.enabled=true`, its default). We take it
+# out of the chart (`--set installation.enabled=false` in the script) for a single reason: to
+# have ONE readable, versioned file instead of a pile of nested `--set` — and to stop Helm and
+# `kubectl apply` from fighting over the ownership of the same object.
 #
-# Les deux CIDR ci-dessous sont substitués à la volée par calico-up.sh (`POD_CIDR`, lu en
-# priorité dans `_out/cluster.env`, et `NETWORK` de lab.env) : les valeurs écrites ici sont
-# les défauts du lab.
+# Both CIDRs below are substituted on the fly by calico-up.sh (`POD_CIDR`, read first from
+# `_out/cluster.env`, and `NETWORK` from lab.env): the values written here are the lab
+# defaults.
 ---
 apiVersion: operator.tigera.io/v1
 kind: Installation
 metadata:
   name: default
 spec:
-  # Calico open source (pas la variante Tigera Enterprise).
+  # Open-source Calico (not the Tigera Enterprise variant).
   variant: Calico
 
-  # Réplicas des composants « control plane » de Calico (Typha, calico-apiserver).
-  # 2 suffit largement pour un lab de 8 nodes ; c'est aussi le défaut de l'opérateur.
+  # Replicas of Calico's "control plane" components (Typha, calico-apiserver).
+  # 2 is plenty for an 8-node lab; it is also the operator's default.
   controlPlaneReplicas: 2
 
   # ------------------------------------------------------------------------------------
-  # driver CSI de Calico désactivé.
-  #   - Talos   : EXIGÉ. Le guide officiel Sidero (« Deploy Calico CNI ») impose `None`.
-  #   - kubeadm : simple allègement. Sur Debian le CSI marcherait très bien, mais il ne sert
-  #     qu'aux volumes éphémères de flow logs, inutilisés ici : `None` supprime un DaemonSet
-  #     par node sans rien perdre.
-  # Sans ce champ, l'opérateur déploie en plus le DaemonSet `csi-node-driver` et monte
-  # `/var/lib/kubelet`.
+  # Calico's CSI driver disabled.
+  #   - Talos  : REQUIRED. The official Sidero guide ("Deploy Calico CNI") mandates `None`.
+  #   - kubeadm: purely slimming down. On Debian the CSI would work fine, but it only serves
+  #     the ephemeral volumes of flow logs, unused here: `None` removes one DaemonSet per node
+  #     and loses nothing.
+  # Without this field the operator additionally deploys the `csi-node-driver` DaemonSet and
+  # mounts `/var/lib/kubelet`.
   kubeletVolumePluginPath: None
 
-  # FlexVolume désactivé.
-  # Sans ce champ, l'opérateur retombe sur son défaut générique
-  # `/usr/libexec/kubernetes/kubelet-plugins/volume/exec/` et ajoute à `calico-node` un
-  # init-container `flexvol-driver` dont le hostPath est monté en `DirectoryOrCreate`
-  # (cf. tigera/operator, pkg/render/node.go).
-  #   - Talos   : BLOQUANT sans `None`. `/usr` est en LECTURE SEULE : kubelet ne peut pas
-  #     créer le dossier et le pod reste bloqué avant de démarrer.
-  #   - kubeadm : allègement. FlexVolume est déprécié depuis Kubernetes 1.23 et ne sert ici
-  #     qu'au socket UDS de Dikastes (policy applicative L7), inutilisé.
-  # `None` supprime purement et simplement l'init-container et son volume.
+  # FlexVolume disabled.
+  # Without this field the operator falls back to its generic default
+  # `/usr/libexec/kubernetes/kubelet-plugins/volume/exec/` and adds to `calico-node` a
+  # `flexvol-driver` init container whose hostPath is mounted as `DirectoryOrCreate`
+  # (see tigera/operator, pkg/render/node.go).
+  #   - Talos  : BLOCKING without `None`. `/usr` is READ-ONLY: the kubelet cannot create the
+  #     directory and the pod stays stuck before starting.
+  #   - kubeadm: slimming down. FlexVolume has been deprecated since Kubernetes 1.23 and is
+  #     only used here for Dikastes' UDS socket (L7 application policy), unused.
+  # `None` simply removes the init container and its volume.
   flexVolumePath: None
 
   calicoNetwork:
     # --------------------------------------------------------------------------------
-    # BGP DÉSACTIVÉ. C'est un choix assumé, pas un oubli : le lab tourne sur un réseau
-    # host-only VirtualBox, il n'y a aucun routeur avec qui peer. Sans pair BGP, BIRD ne
-    # sert à rien — et c'est précisément pour ça que Calico ne peut PAS annoncer d'IP de
-    # Service `LoadBalancer` ici (l'annonce de service IP de Calico n'existe qu'en BGP,
-    # il n'a pas d'équivalent de l'annonce L2/ARP de Cilium). Voir README.md.
+    # BGP DISABLED. That is a deliberate choice, not an oversight: the lab runs on a
+    # VirtualBox host-only network, there is no router to peer with. Without a BGP peer BIRD
+    # is useless — and that is precisely why Calico can NOT announce `LoadBalancer` Service
+    # IPs here (Calico's service-IP advertisement only exists over BGP, it has no equivalent
+    # of Cilium's L2/ARP announcement). See README.md.
     bgp: Disabled
 
-    # Dataplane iptables (le défaut de l'opérateur), explicite pour que ce soit un choix
-    # relu et non un hasard :
-    #  - on GARDE le kube-proxy du cluster (mode iptables) : celui posé par `kubeadm init`,
-    #    ou celui que Talos installe au bootstrap. Sur kubeadm, c'est la raison pour
-    #    laquelle `CNI=calico` EXIGE `KUBE_PROXY_REPLACEMENT=false` : rien ici ne remplace
-    #    kube-proxy, et cluster-up.sh refuse déjà le couple inverse ;
-    #  - le dataplane BPF de Calico exigerait en plus `bpfNetworkBootstrap`,
-    #    `kubeProxyManagement: Enabled` et une `FelixConfiguration` (`cgroupV2Path`), et il
-    #    est cassé sur certaines versions de Talos (siderolabs/talos#12221 : « BPF program
-    #    load failed » sur calico_sendmsg_v46). Trop de pièces mobiles pour le CNI « de
-    #    comparaison » du lab : si on veut de l'eBPF ici, on prend Cilium.
+    # The iptables dataplane (the operator's default), made explicit so that it reads as a
+    # reviewed choice and not as an accident:
+    #  - we KEEP the cluster's kube-proxy (iptables mode): the one laid down by
+    #    `kubeadm init`, or the one Talos installs at bootstrap. On kubeadm, that is why
+    #    `CNI=calico` REQUIRES `KUBE_PROXY_REPLACEMENT=false`: nothing here replaces
+    #    kube-proxy, and cluster-up.sh already refuses the opposite pair;
+    #  - Calico's BPF dataplane would additionally require `bpfNetworkBootstrap`,
+    #    `kubeProxyManagement: Enabled` and a `FelixConfiguration` (`cgroupV2Path`), and it is
+    #    broken on some Talos versions (siderolabs/talos#12221: "BPF program load failed" on
+    #    calico_sendmsg_v46). Too many moving parts for the lab's "comparison" CNI: if we want
+    #    eBPF here, we take Cilium.
     linuxDataplane: Iptables
 
-    # Corollaire du point précédent : l'opérateur ne touche PAS au DaemonSet kube-proxy
-    # (c'est déjà son défaut, écrit noir sur blanc pour éviter toute surprise).
+    # Corollary of the previous point: the operator does NOT touch the kube-proxy DaemonSet
+    # (that is already its default, spelled out here to avoid any surprise).
     kubeProxyManagement: Disabled
 
-    # MTU du réseau pod : 1500 (host-only) - 50 (entêtes VXLAN IPv4) = 1450.
-    # Calico l'auto-détecte, on la fixe pour que la valeur soit lisible dans le dépôt.
+    # Pod network MTU: 1500 (host-only) - 50 (IPv4 VXLAN headers) = 1450.
+    # Calico auto-detects it; we pin it so the value is readable in the repository.
     mtu: 1450
 
     # --------------------------------------------------------------------------------
-    # ÉPINGLAGE DE L'INTERFACE HOST-ONLY — LE piège récurrent de ce lab (cf. CLAUDE.md).
+    # PINNING THE HOST-ONLY INTERFACE — THE recurring trap of this lab (see CLAUDE.md).
     #
-    # Chaque VM a DEUX cartes : la NAT (`eth0`/`enp0s3`, 10.0.2.15, **la même adresse sur
-    # toutes les VMs**, qui porte la route par défaut) et la host-only (`enp0s8`/`eth1`,
-    # 192.168.56.x, la seule identité réellement unique). L'autodétection par défaut de
-    # Calico (`firstFound`) suit la route par défaut : tous les nodes se déclareraient avec
-    # 10.0.2.15, tous les tunnels VXLAN pointeraient vers un NAT isolé => trafic pod
-    # cross-node et DNS (CoreDNS sur un autre node) cassés. Même cause que le
-    # `--iface-can-reach` de flannel et le `devices=<host-only>` de Cilium.
+    # Every VM has TWO cards: the NAT one (`eth0`/`enp0s3`, 10.0.2.15, **the same address on
+    # every VM**, carrying the default route) and the host-only one (`enp0s8`/`eth1`,
+    # 192.168.56.x, the only genuinely unique identity). Calico's default autodetection
+    # (`firstFound`) follows the default route: every node would register itself as
+    # 10.0.2.15, every VXLAN tunnel would point at an isolated NAT => cross-node pod traffic
+    # and DNS (CoreDNS on another node) broken. Same cause as flannel's `--iface-can-reach`
+    # and Cilium's `devices=<host-only>`.
     #
-    # `cidrs` force Calico à retenir l'adresse du node qui tombe dans le réseau host-only,
-    # sans dépendre du nom de la carte. Équivalent possible : `kubernetes: NodeInternalIP`
-    # (kubeadm/templates/kubeadm-init.yaml.tpl pose déjà `node-ip` sur l'IP host-only) —
-    # `cidrs` est plus explicite. Un node sans adresse dans cette plage fait échouer
-    # calico-node : c'est voulu.
+    # `cidrs` forces Calico to keep the node address that falls inside the host-only network,
+    # without depending on the card's name. A possible equivalent: `kubernetes:
+    # NodeInternalIP` (kubeadm/templates/kubeadm-init.yaml.tpl already sets `node-ip` to the
+    # host-only IP) — `cidrs` is more explicit. A node with no address in that range makes
+    # calico-node fail: that is intended.
     nodeAddressAutodetectionV4:
       cidrs:
         - "192.168.56.0/24"
 
     ipPools:
       - name: default-ipv4-ippool
-        # ⚠️ DOIT être identique au `networking.podSubnet` passé à `kubeadm init`
-        # (défaut du lab : 10.244.0.0/16, cf. _out/cluster.env).
-        # Si les deux divergent, kubelet alloue les IP de pod dans un CIDR que Calico
-        # n'a pas programmé : les routes et les tunnels VXLAN ne correspondent à rien.
-        # calico-up.sh refuse de continuer en cas de désaccord.
+        # ⚠️ MUST be identical to the `networking.podSubnet` passed to `kubeadm init` (the lab
+        # default: 10.244.0.0/16, see _out/cluster.env).
+        # If the two diverge, the kubelet allocates pod IPs in a CIDR Calico never programmed:
+        # the routes and the VXLAN tunnels correspond to nothing.
+        # calico-up.sh refuses to carry on when they disagree.
         cidr: "10.244.0.0/16"
 
-        # VXLAN **inconditionnel**. Tous les nodes sont sur le même /24, donc
-        # `VXLANCrossSubnet` retomberait sur du routage direct non encapsulé entre eux :
-        # ça suppose que le commutateur virtuel host-only relaie des paquets dont l'IP
-        # source est une IP de pod — non vérifié ici. `VXLAN` encapsule toujours, ne
-        # dépend d'aucune route côté VirtualBox, et c'est le même choix que celui déjà
-        # fait pour flannel (VXLAN) et Cilium (`routingMode=tunnel`).
+        # **Unconditional** VXLAN. Every node is on the same /24, so `VXLANCrossSubnet` would
+        # fall back to unencapsulated direct routing between them: that assumes the host-only
+        # virtual switch relays packets whose source IP is a pod IP — not verified here.
+        # `VXLAN` always encapsulates, depends on no route on the VirtualBox side, and it is
+        # the same choice already made for flannel (VXLAN) and Cilium (`routingMode=tunnel`).
         encapsulation: VXLAN
 
-        # SNAT vers l'extérieur du cluster : les pods sortent avec l'IP du node
-        # (la route par défaut passe par la NAT 10.0.2.2 — voulu).
+        # SNAT towards the outside of the cluster: pods leave with the node's IP (the default
+        # route goes through the 10.0.2.2 NAT — intended).
         natOutgoing: Enabled
 
-        # /26 = 64 IP par bloc et par node ; 10.244.0.0/16 en offre largement assez.
+        # /26 = 64 IPs per block and per node; 10.244.0.0/16 offers plenty.
         blockSize: 26
 
-        # Ce pool s'applique à tous les nodes (control planes inclus).
+        # This pool applies to every node (control planes included).
         nodeSelector: all()

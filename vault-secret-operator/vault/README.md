@@ -89,7 +89,7 @@ labs can coexist inside a single Vault.
 | Derived policy | `talos-lab-nginx-test-vault` | `kubeadm-lab-nginx-test-vault` |
 
 Versioned files carry the **NEUTRAL marker `lab-kv`**; it is substituted on the fly, exactly
-like the domain (the `rendre` helper in `lib/common.sh`, and a `sed` in `vault/lab-kv.sh`).
+like the domain (the `render` helper in `lib/common.sh`, and a `sed` in `vault/lab-kv.sh`).
 Everything else — VSO, VaultConnection, VaultAuth, the `vso-*` policies, PostgreSQL rotation,
 PKI — is identical on both distributions.
 

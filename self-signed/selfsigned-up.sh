@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 #
-# selfsigned-up.sh — pose le wildcard TLS `*.<LAB_DOMAIN>` du lab SANS cert-manager,
-# sans Let's Encrypt, sans token Cloudflare et sans domaine publiquement résolvable.
+# selfsigned-up.sh — lays down the lab's `*.<LAB_DOMAIN>` wildcard TLS WITHOUT cert-manager,
+# without Let's Encrypt, without a Cloudflare token and without a publicly resolvable domain.
 #
-# Fait trois choses (chacune suppose la précédente) :
-#   1. Une AC locale (`_out/self-signed/ca.crt` + `ca.key`, 10 ans), générée UNE FOIS
-#      et RÉUTILISÉE ensuite : c'est elle qu'on importe dans son navigateur / son
-#      trousseau. Elle survit à `vagrant destroy` (elle vit sur l'hôte, pas dans etcd),
-#      donc l'exception de sécurité ne se rejoue pas à chaque rebuild.
-#   2. Un certificat feuille `*.<LAB_DOMAIN>` (+ `<LAB_DOMAIN>`) signé par cette AC,
-#      825 jours, régénéré seulement si absent / expirant / domaine changé.
-#   3. Le Secret TLS `wildcard-<domaine-en-tirets>-tls` dans `envoy-gateway-system`,
-#      exactement le nom qu'attend l'écouteur `https` de `main-gateway` — cert-manager
-#      aurait rempli le MÊME Secret, la Gateway n'a donc rien à savoir de tout ça.
+# Does three things (each assumes the previous one):
+#   1. A local CA (`_out/self-signed/ca.crt` + `ca.key`, 10 years), generated ONCE and REUSED
+#      afterwards: it is the one you import into your browser / keychain. It survives
+#      `vagrant destroy` (it lives on the host, not in etcd), so the security exception does
+#      not have to be re-accepted on every rebuild.
+#   2. A `*.<LAB_DOMAIN>` (+ `<LAB_DOMAIN>`) leaf certificate signed by that CA, 825 days,
+#      regenerated only when missing / expiring / the domain changed.
+#   3. The `wildcard-<dashed-domain>-tls` TLS Secret in `envoy-gateway-system`, exactly the
+#      name the `https` listener of `main-gateway` expects — cert-manager would have filled
+#      the SAME Secret, so the Gateway needs to know nothing about any of this.
 #
-# Appelé par platform-up.sh (étape 4) quand SELF_SIGNED=true, mais lançable seul :
+# Called by platform-up.sh (step 4) when SELF_SIGNED=true, but runnable on its own:
 #   ./self-signed/selfsigned-up.sh <talos|kubeadm>
-# Idempotent : relancé, il réutilise l'AC et le certificat tant qu'ils sont valides.
+# Idempotent: on a re-run it reuses the CA and the certificate as long as they are valid.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,37 +24,37 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${HERE}/../lib/common.sh"
 k8s_init "$@"
 
-# Durées de vie. 825 jours = la limite au-delà de laquelle les navigateurs refusent
-# un certificat serveur, même signé par une AC de confiance.
+# Lifetimes. 825 days is the limit beyond which browsers refuse a server certificate, even one
+# signed by a trusted CA.
 CA_DAYS="${CA_DAYS:-3650}"
 CERT_DAYS="${CERT_DAYS:-825}"
-# Marge de renouvellement : en dessous, on régénère la feuille au prochain passage.
+# Renewal margin: below it, the leaf is regenerated on the next run.
 RENEW_DAYS="${RENEW_DAYS:-30}"
 
-# LAB_DOMAIN, LAB_DOMAIN_DASH et WILDCARD_TLS viennent de k8s_init (lib/common.sh) : le
-# nom du Secret suit le domaine, exactement comme dans platform-up.sh.
+# LAB_DOMAIN, LAB_DOMAIN_DASH and WILDCARD_TLS come from k8s_init (lib/common.sh): the Secret
+# name follows the domain, exactly as in platform-up.sh.
 
-# `_out/` du lab est gitignoré : la clé privée de l'AC ne peut pas partir dans un commit.
+# The lab's `_out/` is gitignored: the CA private key cannot end up in a commit.
 CERT_DIR="${LAB_DIR}/_out/self-signed"
 CA_KEY="${CERT_DIR}/ca.key"
 CA_CRT="${CERT_DIR}/ca.crt"
 TLS_KEY="${CERT_DIR}/tls.key"
 TLS_CRT="${CERT_DIR}/tls.crt"
 
-# --- Pré-requis --------------------------------------------------------------
+# --- Prerequisites -----------------------------------------------------------
 need kubectl openssl
-exiger_apiserver
+require_apiserver
 
 mkdir -p "$CERT_DIR"
 chmod 700 "$CERT_DIR"
 
 # ============================================================================
-# 1. AC locale — générée une seule fois, puis réutilisée telle quelle.
+# 1. Local CA — generated once, then reused as is.
 # ============================================================================
 if [ -s "$CA_KEY" ] && [ -s "$CA_CRT" ]; then
-  log "AC locale : réutilisation de ${CA_CRT#"$LAB_DIR"/}"
+  log "Local CA: reusing ${CA_CRT#"$LAB_DIR"/}"
 else
-  log "AC locale : génération (${CA_DAYS} jours)"
+  log "Local CA: generating (${CA_DAYS} days)"
   openssl req -x509 -newkey rsa:4096 -sha256 -nodes -days "$CA_DAYS" \
     -keyout "$CA_KEY" -out "$CA_CRT" \
     -subj "/O=${CA_ORG}/CN=${CA_ORG} self-signed CA" \
@@ -64,35 +64,35 @@ else
 fi
 
 # ============================================================================
-# 2. Certificat feuille `*.<LAB_DOMAIN>` — régénéré seulement s'il le faut.
+# 2. `*.<LAB_DOMAIN>` leaf certificate — regenerated only when needed.
 # ============================================================================
-# Trois raisons de régénérer : le fichier manque, il expire dans moins de
-# RENEW_DAYS, ou LAB_DOMAIN a changé depuis (le SAN ne couvre plus le lab).
-besoin_cert=0
+# Three reasons to regenerate: the file is missing, it expires in less than RENEW_DAYS, or
+# LAB_DOMAIN changed since (the SAN no longer covers the lab).
+need_cert=0
 if [ ! -s "$TLS_CRT" ] || [ ! -s "$TLS_KEY" ]; then
-  besoin_cert=1
+  need_cert=1
 elif ! openssl x509 -in "$TLS_CRT" -noout -checkend "$((RENEW_DAYS * 86400))" >/dev/null 2>&1; then
-  echo "    certificat expirant sous ${RENEW_DAYS} jours -> régénération"
-  besoin_cert=1
-# `-text` et NON `-ext subjectAltName` : `-ext` n'existe pas dans LibreSSL, qui est
-# l'openssl SYSTÈME de macOS (/usr/bin/openssl). Il y sortait en erreur sans rien
-# écrire, la condition était donc TOUJOURS vraie, et le certificat était régénéré à
-# chaque exécution — contredisant l'idempotence annoncée et rechargeant le TLS d'Envoy
-# à chaque `platform-up.sh`. `-text` fonctionne des deux côtés.
+  echo "    certificate expiring within ${RENEW_DAYS} days -> regenerating"
+  need_cert=1
+# `-text` and NOT `-ext subjectAltName`: `-ext` does not exist in LibreSSL, which is macOS'
+# SYSTEM openssl (/usr/bin/openssl). There it errored out without printing anything, so the
+# condition was ALWAYS true and the certificate was regenerated on every run — contradicting
+# the advertised idempotence and reloading Envoy's TLS on every `platform-up.sh`. `-text`
+# works on both sides.
 elif ! openssl x509 -in "$TLS_CRT" -noout -text 2>/dev/null \
        | grep -Fq "DNS:*.${LAB_DOMAIN}"; then
-  echo "    LAB_DOMAIN a changé (SAN ne couvre pas *.${LAB_DOMAIN}) -> régénération"
-  besoin_cert=1
+  echo "    LAB_DOMAIN changed (SAN does not cover *.${LAB_DOMAIN}) -> regenerating"
+  need_cert=1
 fi
 
-if [ "$besoin_cert" = "1" ]; then
-  log "Certificat *.${LAB_DOMAIN} (${CERT_DAYS} jours, signé par l'AC locale)"
+if [ "$need_cert" = "1" ]; then
+  log "Certificate *.${LAB_DOMAIN} (${CERT_DAYS} days, signed by the local CA)"
   ext_file="$(mktemp)"
   csr_file="$(mktemp)"
   trap 'rm -f "$ext_file" "$csr_file"' EXIT
-  # `serverAuth` + un SAN explicite : depuis longtemps les navigateurs ignorent le CN
-  # et ne regardent QUE le subjectAltName. On couvre le wildcard ET l'apex, sinon
-  # `https://<LAB_DOMAIN>` (sans sous-domaine) tomberait en erreur de nom.
+  # `serverAuth` + an explicit SAN: browsers have long ignored the CN and look ONLY at the
+  # subjectAltName. We cover the wildcard AND the apex, otherwise `https://<LAB_DOMAIN>` (with
+  # no subdomain) would fail with a name mismatch.
   cat >"$ext_file" <<EOF
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
@@ -108,14 +108,14 @@ EOF
   rm -f "$ext_file" "$csr_file"
   trap - EXIT
 else
-  log "Certificat *.${LAB_DOMAIN} : encore valide, réutilisé"
+  log "Certificate *.${LAB_DOMAIN}: still valid, reused"
 fi
 
 # ============================================================================
-# 3. Secret TLS dans le namespace de la Gateway.
+# 3. TLS Secret in the Gateway's namespace.
 # ============================================================================
-# `tls.crt` = feuille PUIS AC : Envoy sert la chaîne complète, ce qui permet à un
-# client ayant l'AC dans son magasin de valider sans autre configuration.
+# `tls.crt` = leaf THEN CA: Envoy serves the full chain, which lets a client holding the CA in
+# its store validate with no further configuration.
 log "Secret ${WILDCARD_TLS} (ns envoy-gateway-system)"
 kubectl create namespace envoy-gateway-system \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -129,14 +129,14 @@ rm -f "$chain_file"
 trap - EXIT
 
 # ============================================================================
-log "Wildcard auto-signé en place."
-echo "  Domaine  : *.${LAB_DOMAIN} (+ ${LAB_DOMAIN})"
-echo "  Expire   : $(openssl x509 -in "$TLS_CRT" -noout -enddate | cut -d= -f2)"
+log "Self-signed wildcard in place."
+echo "  Domain   : *.${LAB_DOMAIN} (+ ${LAB_DOMAIN})"
+echo "  Expires  : $(openssl x509 -in "$TLS_CRT" -noout -enddate | cut -d= -f2)"
 echo "  Secret   : ${WILDCARD_TLS} (ns envoy-gateway-system)"
-echo "  AC       : ${CA_CRT#"$LAB_DIR"/}"
+echo "  CA       : ${CA_CRT#"$LAB_DIR"/}"
 echo
-echo "  Le navigateur avertira tant que l'AC n'est pas dans ton magasin de confiance."
-echo "  Pour supprimer l'avertissement une bonne fois (Linux, Debian/Ubuntu) :"
+echo "  The browser will warn until the CA is in your trust store."
+echo "  To get rid of the warning for good (Linux, Debian/Ubuntu):"
 echo "    sudo cp ${CA_CRT#"$LAB_DIR"/} /usr/local/share/ca-certificates/${CA_FILE_NAME}"
 echo "    sudo update-ca-certificates"
-echo "  Firefox a son propre magasin : Paramètres > Vie privée > Certificats > Autorités."
+echo "  Firefox has its own store: Settings > Privacy > Certificates > Authorities."

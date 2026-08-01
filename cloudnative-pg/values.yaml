@@ -1,17 +1,18 @@
-# values.yaml — opérateur CloudNativePG pour les labs Talos / kubeadm (chart cnpg/cloudnative-pg).
+# values.yaml — the CloudNativePG operator for the Talos / kubeadm labs
+# (cnpg/cloudnative-pg chart).
 #
-# Cet opérateur gère le CYCLE DE VIE de clusters PostgreSQL déclaratifs (CRD `Cluster`) :
-# provisioning, réplication streaming, failover automatique, backups, rolling updates.
-# C'est le pattern « operator » par excellence — idéal pour un module de formation.
+# This operator manages the LIFECYCLE of declarative PostgreSQL clusters (the `Cluster` CRD):
+# provisioning, streaming replication, automatic failover, backups, rolling updates. It is the
+# "operator" pattern at its purest — ideal for a training module.
 #
-# Ici on n'installe que l'OPÉRATEUR (léger, 1 pod). Le cluster PG de démo (3 nœuds sur
-# Longhorn) est un objet `Cluster` à part : voir cluster-demo.yaml.
+# Here we only install the OPERATOR (lightweight, 1 pod). The demo PG cluster (3 nodes on
+# Longhorn) is a separate `Cluster` object: see cluster-demo.yaml.
 #
-# Choix « lab » : opérateur en 1 replica, resources par défaut du chart (déjà sobres).
-# PodMonitor de l'opérateur désactivé tant que kube-prometheus-stack n'est pas là.
+# "Lab" choices: the operator as 1 replica, the chart's default resources (already frugal).
+# The operator's PodMonitor is disabled until kube-prometheus-stack is there.
 
 replicaCount: 1
 
 monitoring:
-  # Le CRD PodMonitor n'existe qu'après kube-prometheus-stack → laisser false pour l'instant.
+  # The PodMonitor CRD only exists after kube-prometheus-stack → leave it false for now.
   podMonitorEnabled: false

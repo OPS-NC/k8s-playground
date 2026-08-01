@@ -116,7 +116,7 @@ Kubernetes API server.
 | Shape of `extraArgs` | a **map** (`key: value`), Talos `v1alpha1` | a **list** of `{name, value}`, kubeadm `v1beta4` (Kubernetes ≥ 1.31) |
 | Restart | Talos rewrites the manifest and restarts the apiserver itself | `kubeadm` rewrites the manifest, the kubelet notices and restarts the pod |
 | Where the OIDC CA goes (`SELF_SIGNED=true`) | a `machine.files` entry **plus** a `cluster.apiServer.extraVolumes` mount: `/` is read-only and the static pod sees nothing you have not mounted | a plain `cp` into `/etc/kubernetes/pki/`, **already mounted** into the pod — nothing else to declare |
-| Profile variables | `APISERVER_OIDC_PATCH`, `APISERVER_OIDC_MECANISME`, `apiserver_oidc_commandes()` | same three, other values |
+| Profile variables | `APISERVER_OIDC_PATCH`, `APISERVER_OIDC_MECHANISM`, `apiserver_oidc_commands()` | same three, other values |
 | Patch shipped here | [`apiserver-oidc.talos.yaml`](apiserver-oidc.talos.yaml) | [`apiserver-oidc.kubeadm.yaml`](apiserver-oidc.kubeadm.yaml) |
 
 Everything else — the Dex chart, the Keycloak client CR, the `HTTPRoute`, the RBAC bindings — is

@@ -1,38 +1,38 @@
-# values.yaml — node-problem-detector (chart deliveryhero) adapté aux labs Talos / kubeadm.
+# values.yaml — node-problem-detector (deliveryhero chart) tuned for the Talos / kubeadm labs.
 #
-# NPD est un DaemonSet qui surveille la SANTÉ DES NODES et remonte les problèmes en
-# NodeConditions + Events (KernelDeadlock, ReadonlyFilesystem, OOM, TaskHung, KernelOops,
-# erreurs FS/IO...). Utile ici : c'est exactement le genre de panne qui a figé cp2.
+# NPD is a DaemonSet that watches NODE HEALTH and surfaces problems as NodeConditions + Events
+# (KernelDeadlock, ReadonlyFilesystem, OOM, TaskHung, KernelOops, FS/IO errors...). Useful
+# here: that is exactly the kind of failure that once froze cp2.
 #
-# Adaptation (valable pour LES DEUX distributions) : on ne garde QUE le kernel-monitor
-# (lecture de /dev/kmsg).
-#   - docker-monitor (chargé par défaut par le chart) parle au socket Docker : le runtime des
-#     deux labs est containerd, il n'y a pas de Docker → le moniteur échoue.
-#   - systemd-monitor lit journald :
-#       Talos   : il n'y a NI systemd NI journald → impossible, point final ;
-#       kubeadm : systemd existe bien sur Debian 13, mais Debian laisse le journal en
-#         VOLATILE (/run/log/journal) tant que /var/log/journal n'est pas créé, alors que le
-#         chart ne monte que /var/log → le moniteur ne verrait rien. Pour l'activer : créer
-#         /var/log/journal sur les nodes (`vagrant ssh`, mkdir + systemctl restart
-#         systemd-journald) PUIS ajouter /config/systemd-monitor.json ci-dessous.
+# Adaptation (valid for BOTH distributions): we keep ONLY the kernel-monitor (reading
+# /dev/kmsg).
+#   - docker-monitor (loaded by default by the chart) talks to the Docker socket: the runtime
+#     of both labs is containerd, there is no Docker → the monitor fails.
+#   - systemd-monitor reads journald:
+#       Talos  : there is NEITHER systemd NOR journald → impossible, full stop;
+#       kubeadm: systemd does exist on Debian 13, but Debian keeps the journal VOLATILE
+#         (/run/log/journal) until /var/log/journal is created, while the chart only mounts
+#         /var/log → the monitor would see nothing. To enable it: create /var/log/journal on
+#         the nodes (`vagrant ssh`, mkdir + systemctl restart systemd-journald) THEN add
+#         /config/systemd-monitor.json below.
 settings:
   log_monitors:
-    - /config/kernel-monitor.json      # kmsg -> détecte OOM / TaskHung / KernelOops / Ext4/IO errors
+    - /config/kernel-monitor.json      # kmsg -> detects OOM / TaskHung / KernelOops / Ext4/IO errors
   custom_monitors: []
 
-# NPD tourne en privileged (accès /dev/kmsg). Le namespace est étiqueté PodSecurity
-# `privileged` par node-problem-detector-up.sh : INDISPENSABLE sur Talos (défaut cluster
-# `baseline`), documentation d'intention sur kubeadm (aucun niveau appliqué par défaut).
+# NPD runs privileged (/dev/kmsg access). The namespace is labelled PodSecurity `privileged`
+# by node-problem-detector-up.sh: MANDATORY on Talos (cluster default `baseline`),
+# documentation of intent on kubeadm (no level enforced by default).
 securityContext:
   privileged: true
 
-# Tolère tous les taints NoSchedule => tourne AUSSI sur les control-plane (surveille cp1/2/3).
+# Tolerates every NoSchedule taint => runs on the control planes TOO (watches cp1/2/3).
 tolerations:
   - effect: NoSchedule
     operator: Exists
 
-# Métriques Prometheus exposées (port 20257). ServiceMonitor OFF tant que l'addon
-# observability n'a pas ses CRD Prometheus-Operator ; à passer à true ensuite.
+# Prometheus metrics exposed (port 20257). ServiceMonitor OFF until the observability add-on
+# brings its Prometheus-Operator CRDs; switch it to true afterwards.
 metrics:
   enabled: true
   serviceMonitor:

@@ -1,16 +1,16 @@
-# Expose la console d'admin et les endpoints OIDC de Keycloak en HTTPS sous
-# `keycloak.lab.example.io`, derrière `main-gateway` (Envoy Gateway). Le TLS est le
-# wildcard `*.lab.example.io` déjà porté par l'écouteur `https` — aucun Certificate
-# à créer, le wildcard couvre `keycloak.lab.example.io`.
+# Exposes Keycloak's admin console and OIDC endpoints over HTTPS at
+# `keycloak.lab.example.io`, behind `main-gateway` (Envoy Gateway). TLS is the
+# `*.lab.example.io` wildcard already carried by the `https` listener — no Certificate to
+# create, the wildcard covers `keycloak.lab.example.io`.
 #
-# La route vit dans le namespace `keycloak` mais s'attache au Gateway du namespace
-# `envoy-gateway-system` : possible car `main-gateway` ouvre ses écouteurs à `from: All`.
-# Backend dans le même namespace que la route → pas de ReferenceGrant.
+# The route lives in the `keycloak` namespace but attaches to the Gateway of the
+# `envoy-gateway-system` namespace: possible because `main-gateway` opens its listeners to
+# `from: All`. Backend in the same namespace as the route → no ReferenceGrant.
 #
-# ⚠️ Le hostname doit être EXACTEMENT celui de `spec.hostname.hostname` du CR Keycloak
-#    (02-keycloak.yaml). Un écart et l'issuer annoncé dans
-#    `/realms/lab/.well-known/openid-configuration` ne correspond plus à l'URL réellement
-#    appelée : tous les clients OIDC rejettent alors les jetons (« issuer mismatch »).
+# ⚠️ The hostname must be EXACTLY the one in `spec.hostname.hostname` of the Keycloak CR
+#    (02-keycloak.yaml). Any discrepancy and the issuer advertised in
+#    `/realms/lab/.well-known/openid-configuration` no longer matches the URL actually called:
+#    every OIDC client then rejects the tokens ("issuer mismatch").
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -20,13 +20,13 @@ spec:
   parentRefs:
     - name: main-gateway
       namespace: envoy-gateway-system
-      sectionName: https          # cible l'écouteur TLS :443
+      sectionName: https          # targets the TLS :443 listener
   hostnames:
-    - keycloak.lab.example.io    # matche le wildcard *.lab.example.io
+    - keycloak.lab.example.io    # matches the *.lab.example.io wildcard
   rules:
     - backendRefs:
-        # `keycloak-service` est créé par l'opérateur (nom du CR + `-service`) ; le port
-        # 8080 n'existe que parce que `http.httpEnabled: true` — Envoy fait le HTTPS
-        # devant, Keycloak parle en clair derrière.
+        # `keycloak-service` is created by the operator (the CR name + `-service`); port 8080
+        # only exists because `http.httpEnabled: true` — Envoy does the HTTPS in front,
+        # Keycloak speaks plaintext behind.
         - name: keycloak-service
           port: 8080

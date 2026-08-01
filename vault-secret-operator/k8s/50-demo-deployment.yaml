@@ -1,6 +1,7 @@
-# App de démo qui CONSOMME les Secret produits par VSO comme des Secret K8s normaux.
-# Elle ne parle jamais à Vault. C'est la cible des rolloutRestartTargets : quand un secret
-# tourne, VSO patch ce Deployment (annotation) -> rollout -> le pod relit les nouvelles valeurs.
+# A demo app that CONSUMES the Secrets produced by VSO as ordinary K8s Secrets.
+# It never talks to Vault. It is the target of the rolloutRestartTargets: when a secret is
+# rotated, VSO patches this Deployment (an annotation) -> rollout -> the pod re-reads the new
+# values.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,17 +15,17 @@ spec:
     metadata:
       labels: { app: demo-app }
     spec:
-      serviceAccountName: vso-app          # (facultatif ici : c'est VSO qui logge, pas le pod)
+      serviceAccountName: vso-app          # (optional here: VSO logs in, not the pod)
       containers:
         - name: app
           image: busybox:1.38
           command: ["sh", "-c", "env | grep -E 'DB_|APP_' ; sleep 3600"]
-          # KV statique injecté en variables d'env (le Secret "static-kv").
+          # Static KV injected as environment variables (the "static-kv" Secret).
           envFrom:
             - secretRef:
                 name: static-kv
           env:
-            # Cred DB dynamique, clé par clé (Secret "dynamic-db").
+            # Dynamic DB credential, key by key (the "dynamic-db" Secret).
             - name: DB_USER
               valueFrom:
                 secretKeyRef: { name: dynamic-db, key: username }
@@ -32,7 +33,7 @@ spec:
               valueFrom:
                 secretKeyRef: { name: dynamic-db, key: password }
           volumeMounts:
-            # Certificat PKI monté en fichiers (Secret "pki-tls" : tls.crt / tls.key).
+            # PKI certificate mounted as files (the "pki-tls" Secret: tls.crt / tls.key).
             - name: tls
               mountPath: /etc/tls
               readOnly: true

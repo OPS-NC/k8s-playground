@@ -1,45 +1,43 @@
-# apiserver-oidc.talos.yaml — patch de configuration machine Talos : branche
-# l'authentification OIDC du serveur d'API sur Dex.
+# apiserver-oidc.talos.yaml — a Talos machine-configuration patch: wires the API server's
+# OIDC authentication to Dex.
 #
-#   talosctl -n <IP d'un control plane> patch mc --patch @dex/apiserver-oidc.talos.yaml
+#   talosctl -n <IP of a control plane> patch mc --patch @dex/apiserver-oidc.talos.yaml
 #
-# À appliquer sur CHAQUE control plane. Talos réécrit le manifeste statique du
-# kube-apiserver et le redémarre tout seul — pas de fichier à éditer, pas de SSH : la
-# configuration machine EST l'API. C'est toute la différence avec le lab kubeadm, où le
-# même réglage se joue dans un fichier sur le disque du node (cf.
-# `apiserver-oidc.kubeadm.yaml`).
+# To be applied on EVERY control plane. Talos rewrites the kube-apiserver static manifest and
+# restarts it on its own — no file to edit, no SSH: the machine configuration IS the API. That
+# is the whole difference with the kubeadm lab, where the same setting lives in a file on the
+# node's disk (see `apiserver-oidc.kubeadm.yaml`).
 #
-# ⚠️ CE PATCH REDÉMARRE LE SERVEUR D'API. Un `oidc-issuer-url` injoignable ou un
-#    certificat non trusté et l'apiserver refuse de démarrer : le cluster devient
-#    inadministrable jusqu'à ce que le patch soit défait. Appliquer control plane par
-#    control plane, en vérifiant `kubectl get --raw=/readyz` entre chaque.
+# ⚠️ THIS PATCH RESTARTS THE API SERVER. An unreachable `oidc-issuer-url` or an untrusted
+#    certificate and the apiserver refuses to start: the cluster becomes unadministrable until
+#    the patch is undone. Apply it one control plane at a time, checking
+#    `kubectl get --raw=/readyz` in between.
 #
-# ⚠️ AUCUN de ces réglages ne retire quoi que ce soit : les certificats client existants
-#    (celui du `kubeconfig` du lab, ceux des composants) continuent de fonctionner. OIDC
-#    s'AJOUTE aux authentifieurs, il ne les remplace pas — c'est ce qui rend l'opération
-#    réversible.
+# ⚠️ NONE of these settings removes anything: the existing client certificates (the lab's
+#    `kubeconfig`, the components' own) keep working. OIDC is ADDED to the authenticators, it
+#    does not replace them — that is what makes the operation reversible.
 #
-# 🔏 CAS `SELF_SIGNED=true` (le défaut du dépôt) : l'apiserver doit en plus faire
-#    confiance à l'AC locale qui signe `dex.lab.example.io`. Il faut alors AJOUTER un
-#    `oidc-ca-file`, le volume qui l'expose et le fichier lui-même — la procédure
-#    complète, prête à coller, est dans le README (section « Câbler le serveur d'API »).
+# 🔏 `SELF_SIGNED=true` CASE (the repository default): the apiserver must additionally trust
+#    the local CA that signs `dex.lab.example.io`. An `oidc-ca-file`, the volume that exposes
+#    it and the file itself must then be ADDED — the complete, ready-to-paste procedure is in
+#    the README ("Wiring the API server" section).
 cluster:
   apiServer:
-    # Talos v1alpha1 : `extraArgs` est une MAP (clé -> valeur), sans les `--` de tête.
-    # Le lab kubeadm, lui, est en kubeadm v1beta4 où c'est une LISTE de {name, value} :
-    # même réglage, deux formes.
+    # Talos v1alpha1: `extraArgs` is a MAP (key -> value), without the leading `--`.
+    # The kubeadm lab, for its part, is on kubeadm v1beta4 where it is a LIST of {name, value}:
+    # the same setting, two shapes.
     extraArgs:
-      # L'émetteur attendu. Doit valoir EXACTEMENT `config.issuer` de Dex et le hostname
-      # de son HTTPRoute — sinon « oidc: id token issued by a different provider ».
+      # The expected issuer. Must equal Dex's `config.issuer` and its HTTPRoute hostname
+      # EXACTLY — otherwise "oidc: id token issued by a different provider".
       oidc-issuer-url: https://dex.lab.example.io
-      # L'audience attendue : l'`id` du client statique déclaré dans dex/values.yaml.
+      # The expected audience: the `id` of the static client declared in dex/values.yaml.
       oidc-client-id: kubernetes
-      # Le claim qui devient l'identité Kubernetes. `email` et non `sub` : un UUID ne
-      # dit rien dans un `kubectl auth can-i --as=...` ni dans un audit log.
+      # The claim that becomes the Kubernetes identity. `email` and not `sub`: a UUID says
+      # nothing in a `kubectl auth can-i --as=...` nor in an audit log.
       oidc-username-claim: email
-      # Préfixes : ils isolent les identités OIDC de celles du cluster. Sans eux, un
-      # annuaire qui déclare le groupe `system:masters` obtient les pleins pouvoirs.
-      # Ils doivent correspondre aux sujets des ClusterRoleBinding de `rbac.yaml`.
+      # Prefixes: they isolate OIDC identities from the cluster's own. Without them, a
+      # directory declaring the `system:masters` group gets full powers.
+      # They must match the subjects of the ClusterRoleBindings in `rbac.yaml`.
       oidc-username-prefix: "oidc:"
       oidc-groups-claim: groups
       oidc-groups-prefix: "oidc:"

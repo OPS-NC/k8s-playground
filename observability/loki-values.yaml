@@ -1,9 +1,10 @@
-# loki-values.yaml — Loki en mode « single binary » pour les labs Talos / kubeadm (chart grafana/loki).
+# loki-values.yaml — Loki in "single binary" mode for the Talos / kubeadm labs
+# (grafana/loki chart).
 #
-# Le chart grafana/loki vise par défaut un déploiement « SimpleScalable » (read/write/backend
-# séparés + object storage type S3 + caches memcached de plusieurs Go). BEAUCOUP trop pour un
-# lab. Ici on bascule en **SingleBinary** + stockage **filesystem** sur un PVC Longhorn, et on
-# COUPE les caches memcached (chunksCache=8Gi, resultsCache=1Gi par défaut !).
+# The grafana/loki chart targets a "SimpleScalable" deployment by default (separate
+# read/write/backend + S3-style object storage + multi-gigabyte memcached caches). WAY too
+# much for a lab. Here we switch to **SingleBinary** + **filesystem** storage on a Longhorn
+# PVC, and we TURN OFF the memcached caches (chunksCache=8Gi, resultsCache=1Gi by default!).
 
 deploymentMode: SingleBinary
 
@@ -11,7 +12,7 @@ loki:
   auth_enabled: false
   commonConfig:
     replication_factor: 1
-  # Schéma d'index requis (TSDB v13) — sinon le chart refuse de démarrer.
+  # Required index schema (TSDB v13) — otherwise the chart refuses to start.
   schemaConfig:
     configs:
       - from: "2024-04-01"
@@ -24,25 +25,25 @@ loki:
   storage:
     type: filesystem
   limits_config:
-    # Durée de conservation des logs. ATTENTION : cette clé ne fait qu'exprimer la
-    # limite — c'est le COMPACTOR qui supprime réellement (bloc ci-dessous). Sans lui,
-    # `retention_period` est purement déclaratif et le PVC se remplit jusqu'à saturation.
+    # How long the logs are kept. CAREFUL: this key only expresses the limit — it is the
+    # COMPACTOR that actually deletes (the block below). Without it, `retention_period` is
+    # purely declarative and the PVC fills up until saturation.
     retention_period: 24h
-  # Compactor : compacte les index ET applique la rétention. `retention_enabled`
-  # est à false par défaut dans Loki ; sans lui, rien n'est jamais purgé.
-  # `delete_request_store` est requis dès que la rétention est active (stockage des
-  # demandes de suppression) — ici le même filesystem que les chunks.
+  # Compactor: compacts the indexes AND applies the retention. `retention_enabled` defaults to
+  # false in Loki; without it, nothing is ever purged. `delete_request_store` is required as
+  # soon as retention is active (it stores the deletion requests) — here the same filesystem
+  # as the chunks.
   compactor:
     working_directory: /var/loki/compactor
     retention_enabled: true
     delete_request_store: filesystem
-    # Marge entre le marquage d'un chunk et sa suppression effective.
+    # Grace period between marking a chunk and actually deleting it.
     retention_delete_delay: 2h
-  # Loki tourne en non-root : compatible PodSecurity `baseline` (le défaut cluster de Talos)
-  # et `restricted` si l'admission est durcie un jour sur kubeadm (qui n'en applique aucun
-  # par défaut).
+  # Loki runs as non-root: compatible with PodSecurity `baseline` (Talos' cluster default) and
+  # with `restricted` should admission ever be hardened on kubeadm (which enforces none by
+  # default).
 
-# Le seul composant actif : le binaire unique, persistant sur Longhorn (1 réplica bloc).
+# The only active component: the single binary, persistent on Longhorn (1 block replica).
 singleBinary:
   replicas: 1
   persistence:
@@ -56,7 +57,7 @@ singleBinary:
     limits:
       memory: 512Mi
 
-# On neutralise tous les composants du mode scalable.
+# We neutralise every component of the scalable mode.
 read:
   replicas: 0
 write:
@@ -64,18 +65,18 @@ write:
 backend:
   replicas: 0
 
-# Caches memcached : COUPÉS (sinon ~9Gi de RAM demandés à eux seuls).
+# memcached caches: TURNED OFF (otherwise ~9Gi of RAM requested by them alone).
 chunksCache:
   enabled: false
 resultsCache:
   enabled: false
 
-# Le gateway nginx sert de point d'entrée unique (push + query) → loki-gateway:80.
+# The nginx gateway is the single entry point (push + query) → loki-gateway:80.
 gateway:
   enabled: true
   replicas: 1
 
-# Extras inutiles au lab.
+# Extras the lab does not need.
 lokiCanary:
   enabled: false
 test:

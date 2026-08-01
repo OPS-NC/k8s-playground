@@ -1,25 +1,25 @@
-# 04 — VALIDATE (Audit) : interdit les conteneurs privilégiés.
+# 04 — VALIDATE (Audit): forbids privileged containers.
 #
-# Pédagogie : recoupe le niveau PodSecurity `baseline` — appliqué au niveau cluster sur
-# Talos, mais PAS sur kubeadm, d'où l'intérêt de la règle. Elle montre aussi comment Kyverno
-# exprime une règle de sécurité (et pourrait aller plus loin que PSA : exceptions ciblées,
-# messages personnalisés, rapport centralisé). `=(...)` = "si le champ existe, il doit
-# valoir ça" — évite de rendre securityContext obligatoire juste pour tester privileged.
+# Teaching point: it overlaps the PodSecurity `baseline` level — enforced cluster-wide on
+# Talos, but NOT on kubeadm, which is exactly why the rule is interesting. It also shows how
+# Kyverno expresses a security rule (and could go further than PSA: targeted exceptions,
+# custom messages, a centralised report). `=(...)` = "if the field exists, it must equal this"
+# — that avoids making securityContext mandatory just to test privileged.
 #
-# NOTE : `longhorn-system` est labellisé `privileged` (il en a besoin) ; cette policy le
-# signalera en Audit — c'est attendu et illustre justement l'intérêt d'une PolicyException
-# (cf. README, scénario « exception »).
+# NOTE: `longhorn-system` is labelled `privileged` (it needs to be); this policy will report it
+# in Audit — that is expected and precisely illustrates the point of a PolicyException (see the
+# README, "exception" scenario).
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
   name: disallow-privileged-containers
   annotations:
     policies.kyverno.io/title: Disallow privileged containers
-    policies.kyverno.io/category: Sécurité (Pod Security Baseline)
+    policies.kyverno.io/category: Security (Pod Security Baseline)
     policies.kyverno.io/severity: high
     policies.kyverno.io/description: >-
-      Les conteneurs privilégiés désactivent l'isolation et donnent un accès quasi-root
-      à l'hôte. Interdits. Mode Audit.
+      Privileged containers disable isolation and give near-root access to the host.
+      Forbidden. Audit mode.
 spec:
   validationFailureAction: Audit
   background: true
@@ -30,7 +30,7 @@ spec:
           - resources:
               kinds: [Pod]
       validate:
-        message: "Les conteneurs privilégiés sont interdits."
+        message: "Privileged containers are forbidden."
         pattern:
           spec:
             =(ephemeralContainers):

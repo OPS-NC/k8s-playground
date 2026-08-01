@@ -1,19 +1,18 @@
-# 02 — VALIDATE (Audit) : interdit le tag d'image `:latest` (ou l'absence de tag).
+# 02 — VALIDATE (Audit): forbids the `:latest` image tag (or the absence of a tag).
 #
-# Pédagogie : deux règles dans une même policy + usage des opérateurs sur les images.
-# `:latest` casse la reproductibilité (on ne sait pas quelle version tourne) et le
-# rollback. Mode Audit : on repère les coupables dans l'UI sans casser l'existant.
+# Teaching point: two rules in a single policy + the use of operators on images. `:latest`
+# breaks reproducibility (you do not know which version is running) and rollbacks. Audit mode:
+# we spot the culprits in the UI without breaking what exists.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
   name: disallow-latest-tag
   annotations:
     policies.kyverno.io/title: Disallow latest tag
-    policies.kyverno.io/category: Bonnes pratiques
+    policies.kyverno.io/category: Best practices
     policies.kyverno.io/severity: medium
     policies.kyverno.io/description: >-
-      Les images doivent être épinglées à un tag explicite (pas `:latest`, pas
-      d'absence de tag). Mode Audit.
+      Images must be pinned to an explicit tag (no `:latest`, no missing tag). Audit mode.
 spec:
   validationFailureAction: Audit
   background: true
@@ -24,19 +23,19 @@ spec:
           - resources:
               kinds: [Pod]
       validate:
-        message: "Une image doit avoir un tag explicite."
+        message: "An image must have an explicit tag."
         pattern:
           spec:
             containers:
-              - image: "*:*"          # doit contenir un ':' → un tag présent
+              - image: "*:*"          # must contain a ':' → a tag is present
     - name: validate-image-tag
       match:
         any:
           - resources:
               kinds: [Pod]
       validate:
-        message: "Le tag d'image `:latest` est interdit."
+        message: "The `:latest` image tag is forbidden."
         pattern:
           spec:
             containers:
-              - image: "!*:latest"    # ne doit PAS finir par :latest
+              - image: "!*:latest"    # must NOT end with :latest

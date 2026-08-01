@@ -1,12 +1,11 @@
-# Namespace de la pile d'observabilité.
+# Namespace of the observability stack.
 #
-# PodSecurity `privileged` : requis par node-exporter (hostNetwork/hostPID/hostPath/hostPort)
-# ET par Alloy (hostPath /var/log/pods pour lire les logs).
-# Sur Talos, le défaut cluster est `baseline` : ces étiquettes sont INDISPENSABLES, sans
-# elles les pods sont refusés. Sur kubeadm, aucun niveau PodSecurity n'est appliqué par
-# défaut : elles ne changent rien aujourd'hui, mais elles documentent l'intention et
-# gardent le namespace fonctionnel si l'admission est durcie plus tard
-# (--admission-control-config-file sur l'apiserver).
+# PodSecurity `privileged`: required by node-exporter (hostNetwork/hostPID/hostPath/hostPort)
+# AND by Alloy (hostPath /var/log/pods to read the logs).
+# On Talos the cluster default is `baseline`: these labels are MANDATORY, without them the
+# pods are refused. On kubeadm no PodSecurity level is enforced by default: they change
+# nothing today, but they document the intent and keep the namespace working if admission is
+# hardened later (--admission-control-config-file on the apiserver).
 apiVersion: v1
 kind: Namespace
 metadata:

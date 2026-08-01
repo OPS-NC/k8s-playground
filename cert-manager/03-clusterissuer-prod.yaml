@@ -1,8 +1,8 @@
-# Émetteur ACME Let's Encrypt PRODUCTION (DNS-01 Cloudflare).
-# Certs publiquement trustés. Ne basculer ici qu'APRÈS avoir validé en staging
-# (quotas prod limités : ~5 certs identiques / semaine).
-# `email`, `dnsZones` et le domaine sont NEUTRES (dépôt public) : platform-up.sh les
-# substitue depuis lab.env (LAB_ACME_EMAIL, LAB_DNS_ZONE, LAB_DOMAIN).
+# Let's Encrypt PRODUCTION ACME issuer (Cloudflare DNS-01).
+# Publicly trusted certificates. Only switch here AFTER validating on staging (prod quotas are
+# limited: ~5 identical certs / week).
+# `email`, `dnsZones` and the domain are NEUTRAL (public repository): platform-up.sh
+# substitutes them from lab.env (LAB_ACME_EMAIL, LAB_DNS_ZONE, LAB_DOMAIN).
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:

@@ -1,21 +1,21 @@
-# Valeurs Helm Longhorn adaptées aux labs Talos / kubeadm.
+# Longhorn Helm values tuned for the Talos / kubeadm labs.
 defaultSettings:
-  # Où vivent les données, selon la distribution :
-  #   kubeadm : /var/lib/longhorn est un simple dossier du système de fichiers racine de la
-  #     VM (le Vagrantfile n'attache AUCUN disque supplémentaire) → Longhorn partage le
-  #     disque de la box avec l'OS et les images conteneurs ;
-  #   Talos   : /var/lib/longhorn vit sur la partition EPHEMERAL (persistante aux reboots,
-  #     PAS à un reset/reinstall sans --preserve), sur un disque d'install de ~20 Go lui
-  #     aussi PARTAGÉ avec l'OS.
-  # Dans les deux cas → surveiller `DiskPressure`. Pour du vrai stockage, attacher un disque
-  # dédié et le monter (cf. README, section « Disque dédié » ; /var/mnt/longhorn sur Talos).
+  # Where the data lives, per distribution:
+  #   kubeadm: /var/lib/longhorn is a plain directory of the VM's root filesystem (the
+  #     Vagrantfile attaches NO extra disk) → Longhorn shares the box's disk with the OS and
+  #     the container images;
+  #   Talos  : /var/lib/longhorn lives on the EPHEMERAL partition (persistent across reboots,
+  #     NOT across a reset/reinstall without --preserve), on a ~20 GB install disk that is
+  #     also SHARED with the OS.
+  # In both cases → keep an eye on `DiskPressure`. For real storage, attach a dedicated disk
+  # and mount it (see the README, "Dedicated disk" section; /var/mnt/longhorn on Talos).
   defaultDataPath: /var/lib/longhorn
-  # Nb de réplicas = nb de nodes de stockage disponibles. `longhorn-up.sh` surcharge cette
-  # valeur avec le nombre de workers RÉELLEMENT présents dans le cluster (plafonné à 3) —
-  # lab.env.example livre WORKERS=2, donc 2 en pratique. À la main, BAISSER à 1 ou 2 avec
-  # moins de 3 workers, sinon les volumes restent « Degraded » à vie.
+  # Number of replicas = number of available storage nodes. `longhorn-up.sh` overrides this
+  # value with the number of workers ACTUALLY present in the cluster (capped at 3) —
+  # lab.env.example ships WORKERS=2, so 2 in practice. By hand, LOWER it to 1 or 2 with fewer
+  # than 3 workers, otherwise the volumes stay "Degraded" forever.
   defaultReplicaCount: 3
 persistence:
-  # StorageClass `longhorn` posée par défaut du cluster.
+  # The `longhorn` StorageClass set as the cluster default.
   defaultClass: true
   defaultClassReplicaCount: 3

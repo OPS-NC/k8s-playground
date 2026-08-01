@@ -1,17 +1,17 @@
-# Patch machine config Talos pour Longhorn — kubelet.extraMounts.
+# Talos machine config patch for Longhorn — kubelet.extraMounts.
 #
-# `/var/lib/longhorn` partagé en `rshared` : indispensable pour la propagation de montage
-# bidirectionnelle du longhorn-manager (kubelet Talos conteneurisé). À appliquer là où des
-# volumes Longhorn seront montés — ici les WORKERS (les CP sont `NoSchedule`).
+# `/var/lib/longhorn` shared as `rshared`: mandatory for the bidirectional mount propagation
+# of the longhorn-manager (the Talos kubelet is containerised). To be applied wherever
+# Longhorn volumes will be mounted — here, the WORKERS (the CPs are `NoSchedule`).
 #
-# L'installeur AVEC les extensions (iscsi-tools + util-linux-tools, cf. schematic.yaml)
-# n'est PLUS géré ici : il est piloté par `INSTALLER_IMAGE` dans `lab.env`
-# (cluster-up.sh --install-image). Ce patch ne fait donc QUE le montage.
+# The installer WITH the extensions (iscsi-tools + util-linux-tools, see schematic.yaml) is NO
+# LONGER handled here: it is driven by `INSTALLER_IMAGE` in `lab.env`
+# (cluster-up.sh --install-image). This patch therefore only does the mount.
 #
-# Application :
-#   - cluster neuf : `--config-patch @longhorn/patch-longhorn.yaml` au gen config ;
-#   - cluster en route : `talosctl -n <worker-ip> patch mc --patch @longhorn/patch-longhorn.yaml`
-#     (appliqué sans reboot).
+# How to apply:
+#   - fresh cluster : `--config-patch @longhorn/patch-longhorn.yaml` at gen config time;
+#   - running cluster: `talosctl -n <worker-ip> patch mc --patch @longhorn/patch-longhorn.yaml`
+#     (applied without a reboot).
 machine:
   kubelet:
     extraMounts:

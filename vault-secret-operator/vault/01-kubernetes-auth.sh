@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Active et configure la méthode d'auth Kubernetes de Vault (auth/kubernetes).
-# C'est ce qui permet à VSO de prouver son identité à Vault via le token d'un ServiceAccount,
-# validé par l'API TokenReview du cluster.
+# Enables and configures Vault's Kubernetes auth method (auth/kubernetes).
+# That is what lets VSO prove its identity to Vault through a ServiceAccount token, validated
+# by the cluster's TokenReview API.
 #
-# DEUX MODES selon où tourne Vault :
-#   A) Vault IN-CLUSTER  : Vault utilise son propre SA (délégateur) comme reviewer. Config minimale.
-#   B) Vault EXTERNE     : il faut fournir kubernetes_host + kubernetes_ca_cert + token_reviewer_jwt.
+# TWO MODES, depending on where Vault runs:
+#   A) Vault IN-CLUSTER: Vault uses its own SA (the delegator) as the reviewer. Minimal config.
+#   B) Vault EXTERNAL  : kubernetes_host + kubernetes_ca_cert + token_reviewer_jwt must be
+#      supplied.
 #
-# Prérequis : VAULT_ADDR + VAULT_TOKEN (admin) exportés. Choisir le mode via MODE=incluster|external.
+# Prerequisites: VAULT_ADDR + VAULT_TOKEN (admin) exported. Pick the mode with
+# MODE=incluster|external.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,76 +17,78 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${HERE}/../../lib/common.sh"
 k8s_init "$@"
 
-# Le CLI `vault` parle à l'API de Vault : sans lui, rien de ce qui suit ne marche.
+# The `vault` CLI talks to Vault's API: without it, nothing below works.
 need vault
 
 MODE="${MODE:-incluster}"
-# VIP de l'apiserver du lab : keepalived sur kubeadm, VIP Talos (talos/patch-cp.yaml) sur
-# Talos — la même adresse dans les deux labs, lue dans lab.env si elle a été changée.
-KUBE_HOST="${KUBE_HOST:-https://$(lire_param VIP "$DEFAULT_VIP"):6443}"
+# The lab's apiserver VIP: keepalived on kubeadm, the Talos VIP (talos/patch-cp.yaml) on
+# Talos — the same address in both labs, read from lab.env if it was changed.
+KUBE_HOST="${KUBE_HOST:-https://$(read_param VIP "$DEFAULT_VIP"):6443}"
 
-vault auth enable kubernetes 2>/dev/null || echo "  (auth/kubernetes déjà activé)"
+vault auth enable kubernetes 2>/dev/null || echo "  (auth/kubernetes already enabled)"
 
 case "$MODE" in
   incluster)
-    # Vault tourne dans le cluster. Son ServiceAccount doit avoir system:auth-delegator
-    # (le chart hashicorp/vault le fait via server.authDelegator.enabled=true, activé par défaut).
-    # Sans token_reviewer_jwt/host/ca_cert, Vault utilise le token de SON pod + le CA/host montés
-    # dans le conteneur (`disable_local_ca_jwt` reste à false, son défaut : c'est justement ce
-    # qui autorise Vault à lire /var/run/secrets/kubernetes.io/serviceaccount/ dans son conteneur).
+    # Vault runs inside the cluster. Its ServiceAccount must have system:auth-delegator (the
+    # hashicorp/vault chart does that through server.authDelegator.enabled=true, on by
+    # default). Without token_reviewer_jwt/host/ca_cert, Vault uses ITS pod's token + the
+    # CA/host mounted in the container (`disable_local_ca_jwt` stays false, its default: that
+    # is exactly what allows Vault to read
+    # /var/run/secrets/kubernetes.io/serviceaccount/ inside its container).
     #
-    # On ne pose PAS `issuer=` : depuis Vault >= 1.9, `disable_iss_validation` vaut true par
-    # défaut, la revendication `iss` du token n'est donc pas comparée. C'est la seule config
-    # saine ici, car les deux distributions émettent les tokens de SA avec l'issuer
-    # `https://kubernetes.default.svc.cluster.local` (défaut de `--service-account-issuer`,
-    # non surchargé par les labs) alors que `kubernetes_host`
-    # vaut `https://kubernetes.default.svc` : figer `issuer=` sur l'un ou l'autre casserait
-    # le login dès que le défaut amont bougerait.
-    echo "==> [mode in-cluster] config auth/kubernetes (Vault utilise son propre SA délégateur)"
-    # ATTENTION : ce script tourne depuis l'HÔTE (CLI vault), pas dans un pod.
-    # La forme "https://\$KUBERNETES_PORT_443_TCP_ADDR:443" vient de la doc HashiCorp
-    # où elle est exécutée DANS un `kubectl exec … sh -c` : c'est le shell du pod qui
-    # interpole la variable. Ici, Vault recevait et stockait la chaîne LITTÉRALE
-    # (`$KUBERNETES_PORT_443_TCP_ADDR` non résolu) => tout login via auth/kubernetes
-    # échouait en résolution DNS. On utilise donc le nom de service stable, résolu
-    # par le pod Vault lui-même (idem vault/lab-kv.sh).
+    # We do NOT set `issuer=`: since Vault >= 1.9, `disable_iss_validation` defaults to true,
+    # so the token's `iss` claim is not compared. That is the only sane configuration here,
+    # because both distributions issue SA tokens with the issuer
+    # `https://kubernetes.default.svc.cluster.local` (the `--service-account-issuer` default,
+    # not overridden by the labs) while `kubernetes_host` is `https://kubernetes.default.svc`:
+    # pinning `issuer=` to either one would break the login as soon as the upstream default
+    # moved.
+    echo "==> [in-cluster mode] configuring auth/kubernetes (Vault uses its own delegator SA)"
+    # CAREFUL: this script runs from the HOST (the vault CLI), not inside a pod.
+    # The "https://\$KUBERNETES_PORT_443_TCP_ADDR:443" form comes from the HashiCorp docs,
+    # where it is executed INSIDE a `kubectl exec … sh -c`: it is the pod's shell that
+    # interpolates the variable. Here, Vault received and stored the LITERAL string
+    # (`$KUBERNETES_PORT_443_TCP_ADDR` unresolved) => every login through auth/kubernetes
+    # failed on DNS resolution. So we use the stable service name, resolved by the Vault pod
+    # itself (same as vault/lab-kv.sh).
     vault write auth/kubernetes/config \
       kubernetes_host="https://kubernetes.default.svc"
     ;;
   external)
-    # Vault hors du cluster : il ne peut pas déduire host/CA/reviewer tout seul.
-    # 1) Créer côté K8s un SA délégateur "vault-auth" + son token long (voir doc ci-dessous).
-    # 2) Renseigner ici son JWT (SA_JWT), le CA de l'API K8s (SA_CA_CRT) et l'endpoint.
-    : "${SA_JWT:?exporte SA_JWT = token du SA délégateur vault-auth}"
-    : "${SA_CA_CRT:?exporte SA_CA_CRT = CA de l'API Kubernetes (PEM)}"
-    echo "==> [mode externe] config auth/kubernetes (reviewer JWT explicite)"
+    # Vault outside the cluster: it cannot work out host/CA/reviewer on its own.
+    # 1) On the K8s side, create a "vault-auth" delegator SA + its long-lived token (see the
+    #    notes below).
+    # 2) Provide its JWT (SA_JWT), the K8s API CA (SA_CA_CRT) and the endpoint here.
+    : "${SA_JWT:?export SA_JWT = token of the vault-auth delegator SA}"
+    : "${SA_CA_CRT:?export SA_CA_CRT = CA of the Kubernetes API (PEM)}"
+    echo "==> [external mode] configuring auth/kubernetes (explicit reviewer JWT)"
     vault write auth/kubernetes/config \
       kubernetes_host="$KUBE_HOST" \
       kubernetes_ca_cert="$SA_CA_CRT" \
       token_reviewer_jwt="$SA_JWT"
-    # Côté K8s, préparer le reviewer (à lancer avec kubectl AVANT ce script) :
+    # On the K8s side, prepare the reviewer (run with kubectl BEFORE this script):
     #   kubectl create sa vault-auth -n vault-secrets-operator
     #   kubectl create clusterrolebinding vault-auth-delegator \
     #     --clusterrole=system:auth-delegator \
     #     --serviceaccount=vault-secrets-operator:vault-auth
     #   SA_CA_CRT="$(kubectl get cm kube-root-ca.crt -n vault-secrets-operator -o jsonpath='{.data.ca\.crt}')"
     #   SA_JWT="$(kubectl create token vault-auth -n vault-secrets-operator --duration=8760h)"
-    # ⚠️ Ne PAS forcer `--audience` ici : les deux labs laissent `--api-audiences` au défaut, c'est-à-dire
-    #    la seule valeur `https://kubernetes.default.svc.cluster.local` (l'issuer). Un token
-    #    demandé avec une autre audience est rejeté à l'authentification et le TokenReview de
-    #    Vault échouerait alors en 401. Sans `--audience`, kubectl émet le token sur l'audience
-    #    par défaut de l'apiserver : c'est ce qu'il faut.
+    # ⚠️ Do NOT force `--audience` here: both labs leave `--api-audiences` at its default, i.e.
+    #    the single value `https://kubernetes.default.svc.cluster.local` (the issuer). A token
+    #    requested with any other audience is rejected at authentication time and Vault's
+    #    TokenReview would then fail with a 401. Without `--audience`, kubectl issues the token
+    #    on the apiserver's default audience: that is what is needed.
     ;;
-  *) echo "MODE inconnu: $MODE (incluster|external)"; exit 1 ;;
+  *) echo "unknown MODE: $MODE (incluster|external)"; exit 1 ;;
 esac
 
-# Le host effectif dépend du mode : en in-cluster, KUBE_HOST n'est pas utilisé
-# (l'ancien résumé l'affichait quand même, ce qui laissait croire au contraire).
+# The effective host depends on the mode: in in-cluster mode, KUBE_HOST is not used (the old
+# summary printed it anyway, which suggested the opposite).
 case "$MODE" in
-  incluster) echo "==> auth/kubernetes configuré (mode=incluster, host=https://kubernetes.default.svc)." ;;
-  external)  echo "==> auth/kubernetes configuré (mode=external, host=$KUBE_HOST)." ;;
+  incluster) echo "==> auth/kubernetes configured (mode=incluster, host=https://kubernetes.default.svc)." ;;
+  external)  echo "==> auth/kubernetes configured (mode=external, host=$KUBE_HOST)." ;;
 esac
 
-# Vérification : le host réellement enregistré côté Vault.
+# Check: the host actually registered on the Vault side.
 vault read -field=kubernetes_host auth/kubernetes/config \
-  | sed 's/^/    host enregistré : /'
+  | sed 's/^/    registered host: /'

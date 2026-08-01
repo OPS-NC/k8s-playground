@@ -1,54 +1,54 @@
 #!/usr/bin/env bash
 #
-# lib/profiles/talos.sh — profil « Talos Linux » (dépôt Vagrant-Talos).
+# lib/profiles/talos.sh — the "Talos Linux" profile (Vagrant-Talos repository).
 #
-# Ce que ce profil dit, en une phrase : l'OS est IMMUABLE. `/` et `/usr` sont en lecture
-# seule (seul `/var` est inscriptible), il n'y a ni systemd ni journald, l'admission
-# PodSecurity applique `baseline` au niveau cluster par défaut, et la configuration des
-# nodes passe par `talosctl` (API) — pas par SSH.
+# What this profile says, in one sentence: the OS is IMMUTABLE. `/` and `/usr` are read-only
+# (only `/var` is writable), there is neither systemd nor journald, PodSecurity admission
+# enforces `baseline` cluster-wide by default, and node configuration goes through `talosctl`
+# (an API) — not through SSH.
 #
-# Conséquences concrètes, toutes portées par les variables ci-dessous :
-#   - un chemin hostPath doit vivre sous /var (local-path-provisioner) ;
-#   - un pod privilégié exige un namespace étiqueté `privileged` (sinon refus SILENCIEUX :
-#     le Deployment existe, le ReplicaSet ne crée AUCUN pod) ;
-#   - les prérequis « paquet » deviennent des EXTENSIONS cuites dans l'image d'installation
-#     (iscsi-tools pour Longhorn) : elles ne s'ajoutent pas à chaud ;
-#   - tout ce qui bind-monte /etc/systemd ou /lib/systemd échoue (trivy node-collector) ;
-#   - Cilium a besoin de valeurs spécifiques (cgroup déjà monté par Talos, capabilities
-#     explicites) documentées par l'upstream Cilium pour Talos.
+# Concrete consequences, all carried by the variables below:
+#   - a hostPath must live under /var (local-path-provisioner);
+#   - a privileged pod needs a namespace labelled `privileged` (otherwise it is refused
+#     SILENTLY: the Deployment exists, the ReplicaSet creates NO pod);
+#   - "package" prerequisites become EXTENSIONS baked into the installer image (iscsi-tools
+#     for Longhorn): they cannot be added at runtime;
+#   - anything bind-mounting /etc/systemd or /lib/systemd fails (trivy node-collector);
+#   - Cilium needs specific values (cgroup already mounted by Talos, explicit capabilities)
+#     documented by Cilium upstream for Talos.
 
 # shellcheck shell=bash
 
-DISTRO_LABEL="Talos Linux (OS immuable)"
-LAB_REPO_NAME="Vagrant-Talos"            # dépôt Vagrant voisin (lab.env, _out/)
+DISTRO_LABEL="Talos Linux (immutable OS)"
+LAB_REPO_NAME="Vagrant-Talos"            # neighbouring Vagrant repository (lab.env, _out/)
 DEFAULT_LAB_DOMAIN="talos.lab.example.io"
-CA_ORG="Vagrant-Talos lab"               # sujet de l'AC auto-signée (self-signed/)
-CA_FILE_NAME="vagrant-talos-lab.crt"     # nom suggéré à l'import dans le trust store
-CLUSTER_UP_HINT="./talos/cluster-up.sh (dépôt Vagrant-Talos)"
+CA_ORG="Vagrant-Talos lab"               # subject of the self-signed CA (self-signed/)
+CA_FILE_NAME="vagrant-talos-lab.crt"     # suggested name when importing into the trust store
+CLUSTER_UP_HINT="./talos/cluster-up.sh (Vagrant-Talos repository)"
 CLUSTER_RESET_HINT="vagrant destroy && vagrant up && ./talos/cluster-up.sh"
 
-# --- Réseau ------------------------------------------------------------------
-# Talos nomme l'interface host-only `enp0s8` (noms prédictibles, box officielle).
+# --- Network -----------------------------------------------------------------
+# Talos names the host-only interface `enp0s8` (predictable names, official box).
 DEFAULT_HOSTONLY_IF="enp0s8"
-# CIDR pod : `cluster.network.podSubnets` de la config machine (défaut Talos ET du lab).
+# Pod CIDR: `cluster.network.podSubnets` of the machine config (Talos AND lab default).
 DEFAULT_POD_CIDR="10.244.0.0/16"
-# kube-proxy est TOUJOURS posé par Talos dans ce lab : on ne le remplace pas.
+# kube-proxy is ALWAYS installed by Talos in this lab: we do not replace it.
 KUBE_PROXY_REPLACEABLE=false
 DEFAULT_KUBE_PROXY_REPLACEMENT="false"
-DEFAULT_VIP="192.168.56.5"               # VIP de l'apiserver (cf. talos/patch-cp.yaml)
-# flannel : quand CNI=flannel, Talos l'a DÉJÀ posé au bootstrap — la couche plateforme
-# n'a rien à installer.
+DEFAULT_VIP="192.168.56.5"               # apiserver VIP (see talos/patch-cp.yaml)
+# flannel: with CNI=flannel, Talos ALREADY installed it at bootstrap — the platform layer has
+# nothing to lay down.
 FLANNEL_PRE_INSTALLED=true
 
 # --- Cilium ------------------------------------------------------------------
-# `ipam.mode=kubernetes` : c'est le kube-controller-manager de Talos qui découpe les
-# podCIDR par node ; Cilium se contente de les suivre.
+# `ipam.mode=kubernetes`: Talos' kube-controller-manager carves the per-node podCIDRs; Cilium
+# merely follows them.
 CILIUM_IPAM_MODE="kubernetes"
-# Valeurs EXIGÉES par Cilium sur Talos (cf. docs Cilium « Talos Linux ») :
-#   - cgroup.autoMount.enabled=false + hostRoot : Talos monte déjà cgroup2, et le pod ne
-#     peut pas remonter /sys/fs/cgroup lui-même (système de fichiers en lecture seule) ;
-#   - capabilities explicites : Talos refuse le `privileged` implicite du chart.
-cilium_sets_specifiques() {
+# Values REQUIRED by Cilium on Talos (see the Cilium "Talos Linux" docs):
+#   - cgroup.autoMount.enabled=false + hostRoot: Talos already mounts cgroup2, and the pod
+#     cannot remount /sys/fs/cgroup itself (read-only filesystem);
+#   - explicit capabilities: Talos refuses the chart's implicit `privileged`.
+cilium_specific_sets() {
   printf '%s\n' \
     '--set' 'cgroup.autoMount.enabled=false' \
     '--set' 'cgroup.hostRoot=/sys/fs/cgroup' \
@@ -56,47 +56,47 @@ cilium_sets_specifiques() {
     '--set' 'securityContext.capabilities.cleanCiliumState={NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}'
 }
 
-# --- Stockage ----------------------------------------------------------------
-# local-path-provisioner : `/opt` n'existe pas en écriture sur Talos, seul /var est
-# inscriptible → on déplace le chemin de provisionnement.
+# --- Storage -----------------------------------------------------------------
+# local-path-provisioner: `/opt` is not writable on Talos, only /var is → we move the
+# provisioning path.
 LOCAL_PATH_DIR="/var/local-path-provisioner"
-# Longhorn : deux prérequis PROPRES À TALOS, pris en charge par longhorn-up.sh —
-#   1. extensions `iscsi-tools` + `util-linux-tools` cuites dans INSTALLER_IMAGE
-#      (cf. longhorn/schematic.yaml) : sans elles, les pods CSI partent en
-#      CrashLoopBackOff (`iscsiadm: not found`) et rien ne les répare à chaud ;
-#   2. montage kubelet `rshared` sur /var/lib/longhorn (longhorn/patch-longhorn.yaml) :
-#      le kubelet Talos tourne dans un conteneur sans propagation bidirectionnelle.
-LONGHORN_PREP_REQUISE=true
+# Longhorn: two prerequisites SPECIFIC TO TALOS, handled by longhorn-up.sh —
+#   1. the `iscsi-tools` + `util-linux-tools` extensions baked into INSTALLER_IMAGE
+#      (see longhorn/schematic.yaml): without them the CSI pods go into CrashLoopBackOff
+#      (`iscsiadm: not found`) and nothing fixes that at runtime;
+#   2. an `rshared` kubelet mount on /var/lib/longhorn (longhorn/patch-longhorn.yaml): the
+#      Talos kubelet runs in a container with no bidirectional mount propagation.
+LONGHORN_PREP_REQUIRED=true
 
-# --- Sécurité / admission ----------------------------------------------------
-# `baseline` appliqué au niveau cluster : tout pod privilégié (hostNetwork, hostPath,
-# hostPID) exige un namespace étiqueté `pod-security.kubernetes.io/enforce: privileged`.
-PODSECURITY_DEFAUT="baseline (appliqué au niveau cluster)"
-# trivy-operator : le node-collector bind-monte /etc/systemd, /lib/systemd, /etc/kubernetes.
-# Talos n'a pas de systemd et / + /etc sont en lecture seule → `CreateContainerError:
-# mkdir /etc/systemd: read-only file system`. On coupe les deux scanners qui le lancent
-# (infra assessment + cluster compliance) ; les scans images/config/secrets/RBAC continuent.
+# --- Security / admission ----------------------------------------------------
+# `baseline` enforced cluster-wide: any privileged pod (hostNetwork, hostPath, hostPID) needs
+# a namespace labelled `pod-security.kubernetes.io/enforce: privileged`.
+PODSECURITY_DEFAULT="baseline (enforced cluster-wide)"
+# trivy-operator: the node-collector bind-mounts /etc/systemd, /lib/systemd, /etc/kubernetes.
+# Talos has no systemd and / + /etc are read-only → `CreateContainerError: mkdir /etc/systemd:
+# read-only file system`. We turn off the two scanners that launch it (infra assessment +
+# cluster compliance); the image/config/secret/RBAC scans carry on.
 TRIVY_NODE_COLLECTOR=false
 
-# --- Observabilité -----------------------------------------------------------
-# etcd, scheduler, controller-manager et kube-proxy n'exposent pas de métriques scrutables
-# sans configuration TLS dédiée sur Talos → moniteurs désactivés pour éviter des cibles
-# « down » inexplicables en formation.
+# --- Observability -----------------------------------------------------------
+# etcd, scheduler, controller-manager and kube-proxy expose no scrapable metrics without
+# dedicated TLS configuration on Talos → monitors disabled, to avoid unexplainable "down"
+# targets during training.
 KPS_SCRAPE_CONTROL_PLANE=false
 
-# --- Authentification OIDC du serveur d'API (dex/) ----------------------------
-# La configuration machine EST l'API : `talosctl patch mc` suffit, Talos régénère le
-# manifeste statique du kube-apiserver et le redémarre. Ni SSH, ni fichier à éditer.
+# --- API-server OIDC authentication (dex/) -----------------------------------
+# The machine configuration IS the API: `talosctl patch mc` is enough, Talos regenerates the
+# kube-apiserver static manifest and restarts it. No SSH, no file to edit.
 APISERVER_OIDC_PATCH="apiserver-oidc.talos.yaml"
-APISERVER_OIDC_MECANISME="talosctl patch mc (la configuration machine est une API)"
-# $1 = chemin du patch à appliquer. Écrit sur stdout les commandes à lancer : ce dépôt
-# n'exécute PAS ces commandes, elles redémarrent le serveur d'API (cf. dex/README.md).
-apiserver_oidc_commandes() {
+APISERVER_OIDC_MECHANISM="talosctl patch mc (the machine configuration is an API)"
+# $1 = path of the patch to apply. Writes the commands to run on stdout: this repository does
+# NOT run them, they restart the API server (see dex/README.md).
+apiserver_oidc_commands() {
   cat <<EOF
     for ip in \$(kubectl get nodes -l node-role.kubernetes.io/control-plane \\
                    -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address}{" "}{end}'); do
       talosctl -n "\$ip" patch mc --patch @${1}
-      kubectl get --raw=/readyz && echo   # vérifier AVANT de passer au suivant
+      kubectl get --raw=/readyz && echo   # check BEFORE moving on to the next one
     done
 EOF
 }
@@ -104,7 +104,7 @@ EOF
 # --- Vault / VSO -------------------------------------------------------------
 VAULT_KV_MOUNT="talos-lab"
 
-# --- Divers ------------------------------------------------------------------
+# --- Misc --------------------------------------------------------------------
 METRICS_KUBELET_INSECURE=true
-# Config talosctl : nécessaire pour les composants qui parlent à l'API Talos (Longhorn).
-TALOSCONFIG_DEFAUT="_out/talosconfig"
+# talosctl config: needed by the components that talk to the Talos API (Longhorn).
+TALOSCONFIG_DEFAULT="_out/talosconfig"

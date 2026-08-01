@@ -76,7 +76,7 @@ démonstration, pour que les deux labs puissent coexister dans un même Vault.
 | Policy dérivée | `talos-lab-nginx-test-vault` | `kubeadm-lab-nginx-test-vault` |
 
 Les fichiers versionnés portent le marqueur **NEUTRE `lab-kv`** ; il est substitué à la volée,
-exactement comme le domaine (fonction `rendre` de `lib/common.sh`, et `sed` dans
+exactement comme le domaine (fonction `render` de `lib/common.sh`, et `sed` dans
 `vault/lab-kv.sh`). Tout le reste — VSO, VaultConnection, VaultAuth, policies `vso-*`, rotation
 PostgreSQL, PKI — est identique sur les deux distributions.
 
