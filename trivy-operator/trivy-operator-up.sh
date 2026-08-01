@@ -30,11 +30,11 @@ TRIVY_OPERATOR_VERSION="${TRIVY_OPERATOR_VERSION:-0.34.0}"        # app v0.32.0
 POLICY_REPORTER_VERSION="${POLICY_REPORTER_VERSION:-3.9.1}"
 
 need kubectl helm
-exiger_apiserver
+require_apiserver
 
 # ============================================================================
 log "[1/2] Trivy Operator ${TRIVY_OPERATOR_VERSION} (scanners node : ${TRIVY_NODE_COLLECTOR})"
-resume_distro
+distro_summary
 helm repo add aqua https://aquasecurity.github.io/helm-charts/ >/dev/null 2>&1 || true
 helm repo update aqua >/dev/null
 # values.yaml porte les scanners « node » ACTIVÉS (cas kubeadm) ; le profil Talos les

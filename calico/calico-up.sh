@@ -50,14 +50,14 @@ CALICO_VERSION="${CALICO_VERSION:-v3.32.1}"
 
 # --- Paramètres du lab ------------------------------------------------------
 # Réseau host-only : sert à épingler l'autodétection d'adresse de Calico (cf. installation.yaml).
-NETWORK="$(lire_param NETWORK 192.168.56)"
+NETWORK="$(read_param NETWORK 192.168.56)"
 HOSTONLY_CIDR="${HOSTONLY_CIDR:-${NETWORK}.0/24}"
 # CIDR des pods : doit coller au CIDR réellement utilisé par le cluster (défaut 10.244.0.0/16).
-POD_CIDR="$(lire_param POD_CIDR "$DEFAULT_POD_CIDR")"
+POD_CIDR="$(read_param POD_CIDR "$DEFAULT_POD_CIDR")"
 
 # --- Pré-requis -------------------------------------------------------------
 need kubectl helm
-exiger_apiserver
+require_apiserver
 
 # --- Garde-fou : un seul CNI par cluster ------------------------------------
 # Deux CNI installés en parallèle se disputent /etc/cni/net.d et les routes : le réseau
@@ -76,7 +76,7 @@ fi
 # Le couple KUBE_PROXY_REPLACEMENT=true + calico n'existe QUE sur kubeadm (sur Talos,
 # kube-proxy est toujours posé par le bootstrap) : cluster-up.sh le refuse déjà, mais
 # lab.env a pu être édité depuis.
-if [ "$KUBE_PROXY_REPLACEABLE" = "true" ] && [ "$(lire_param KUBE_PROXY_REPLACEMENT false)" = "true" ]; then
+if [ "$KUBE_PROXY_REPLACEABLE" = "true" ] && [ "$(read_param KUBE_PROXY_REPLACEMENT false)" = "true" ]; then
   fail "KUBE_PROXY_REPLACEMENT=true est INCOMPATIBLE avec CNI=calico.
         Seul Cilium sait remplacer kube-proxy dans ce lab. Choisis :
           - CNI=cilium                    (garder le remplacement eBPF), ou
@@ -98,7 +98,7 @@ fi
 #   - Talos   : `_out/controlplane.yaml` (`cluster.network.podSubnets`).
 pod_cidr_reel=""
 if [ "$K8S_DISTRO" = "kubeadm" ]; then
-  pod_cidr_reel="$(lire_cluster_env POD_CIDR)"
+  pod_cidr_reel="$(read_cluster_env POD_CIDR)"
   source_cidr="${CLUSTER_ENV_FILE}"
 elif [ -f "${LAB_DIR}/_out/controlplane.yaml" ]; then
   pod_cidr_reel="$(awk '/podSubnets:/{f=1;next} f && $1=="-" {print $2; exit}' \

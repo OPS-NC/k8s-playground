@@ -33,7 +33,7 @@ CHAOS_DRY_RUN="${CHAOS_DRY_RUN:-0}"
 
 # --- Pré-requis -------------------------------------------------------------
 need kubectl helm
-exiger_apiserver
+require_apiserver
 
 # ============================================================================
 log "chaoskube ${CHAOSKUBE_VERSION} (namespace ${NS})"

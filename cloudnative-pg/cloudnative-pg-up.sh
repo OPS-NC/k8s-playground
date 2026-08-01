@@ -22,8 +22,8 @@ k8s_init "$@"
 CNPG_VERSION="${CNPG_VERSION:-0.29.0}"          # app v1.30.0
 
 need kubectl helm
-exiger_apiserver
-exiger_sc longhorn-r1
+require_apiserver
+require_sc longhorn-r1
 
 # ============================================================================
 log "[1/2] Opérateur CloudNativePG ${CNPG_VERSION}"

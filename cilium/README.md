@@ -64,7 +64,7 @@ This is **the most distribution-dependent component** in the whole repository.
 | `securityContext.capabilities.*` | explicit lists (**required**) | not set | Talos rejects the chart's implicit `privileged`. |
 | `devices` | `enp0s8` | `eth1`/`enp0s8`, **detected** in `_out/cluster.env` | Without pinning, Cilium picks the NAT NIC `10.0.2.15` — identical on every VM ⇒ broken cross-node traffic and DNS. |
 
-Source: `lib/profiles/<distro>.sh` (`CILIUM_IPAM_MODE`, `cilium_sets_specifiques()`,
+Source: `lib/profiles/<distro>.sh` (`CILIUM_IPAM_MODE`, `cilium_specific_sets()`,
 `KUBE_PROXY_REPLACEABLE`, `DEFAULT_HOSTONLY_IF`).
 
 ## 🎓 Guided walkthrough (step by step)

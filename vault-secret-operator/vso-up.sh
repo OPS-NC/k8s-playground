@@ -39,14 +39,14 @@ VSO_VERSION="${VSO_VERSION:-1.5.0}"        # app 1.5.0
 NS="${NS:-vault-secrets-operator}"
 
 need kubectl helm
-exiger_apiserver
+require_apiserver
 
 # ============================================================================
 log "[1/1] Vault Secrets Operator ${VSO_VERSION}"
 helm repo add hashicorp https://helm.releases.hashicorp.com >/dev/null 2>&1 || true
 helm repo update hashicorp >/dev/null
 # values.yaml ne porte aucun domaine (l'adresse Vault par défaut est le Service
-# in-cluster) : appliqué tel quel, sans passer par `rendre`.
+# in-cluster) : appliqué tel quel, sans passer par `render`.
 helm upgrade --install vault-secrets-operator hashicorp/vault-secrets-operator \
   --namespace "$NS" --create-namespace \
   --version "${VSO_VERSION}" \

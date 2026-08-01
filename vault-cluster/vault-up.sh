@@ -35,9 +35,9 @@ INIT_FILE="${INIT_FILE:-${LAB_DIR}/_out/vault-init.json}"
 
 # --- Pré-requis -------------------------------------------------------------
 need kubectl helm jq
-exiger_apiserver
+require_apiserver
 # La StorageClass `longhorn` porte les 3 PVC Raft : sans elle les pods restent Pending.
-exiger_sc longhorn
+require_sc longhorn
 
 # `vault status` sort en 2 quand Vault est scellé : `|| true` sinon `set -e` tue le script.
 vault_status() { kubectl -n "$NS" exec "$1" -- vault status -format=json 2>/dev/null || true; }
@@ -129,7 +129,7 @@ fi
 log "[4/4] HTTPRoute vault.${LAB_DOMAIN}"
 # Le manifeste versionné porte le domaine neutre : substitué à la volée, comme
 # partout ailleurs dans k8s-playground/ (cf. ../README.md).
-rendre "${HERE}"/httproute.yaml | kubectl apply -f -
+render "${HERE}"/httproute.yaml | kubectl apply -f -
 
 # ============================================================================
 log "Vault installé."

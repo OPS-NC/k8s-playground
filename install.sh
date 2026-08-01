@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 #
-# install.sh — point d'entrée unique des ressources Kubernetes de ce dépôt.
+# install.sh — the single entry point for this repository's Kubernetes resources.
 #
-#   ./install.sh <talos|kubeadm> <composant...>
+#   ./install.sh <talos|kubeadm> <component...>
 #
-# Exemples :
-#   ./install.sh talos platform                 # la plateforme de base sur le lab Talos
-#   ./install.sh kubeadm platform longhorn      # plateforme puis stockage bloc
-#   ./install.sh talos list                     # ce qui est installable
-#   ./install.sh kubeadm all                    # plateforme + tous les addons, dans l'ordre
+# Examples:
+#   ./install.sh talos platform                 # the base platform on the Talos lab
+#   ./install.sh kubeadm platform longhorn      # platform, then block storage
+#   ./install.sh talos list                     # what can be installed
+#   ./install.sh kubeadm all                    # platform + every add-on, in order
 #
-# La distribution est le PREMIER argument, parce que c'est la seule chose qui change
-# vraiment d'un lab à l'autre (cf. lib/profiles/). Elle est transmise à chaque script de
-# composant, qui reste lançable seul :
+# The distribution is the FIRST argument, because it is the only thing that genuinely changes
+# from one lab to the other (see lib/profiles/). It is forwarded to every component script,
+# each of which stays runnable on its own:
 #   ./longhorn/longhorn-up.sh talos
 #
-# Rien n'est installé « en douce » : chaque composant a son dossier, son script et son
-# README avec la version PAS-À-PAS des mêmes commandes (utile en formation).
+# Nothing is installed behind your back: every component has its directory, its script and its
+# README with the STEP-BY-STEP version of the very same commands (useful for training).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,50 +24,50 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${HERE}/lib/common.sh"
 
 # --- Catalogue ---------------------------------------------------------------
-# alias|script|description  — l'ordre est l'ordre d'installation conseillé (`all`).
+# alias|script|description  — the order is the recommended install order (`all`).
 CATALOGUE=(
-  "platform|platform-up.sh|CNI + Envoy Gateway + metrics-server + wildcard TLS (socle)"
-  "cilium|cilium/cilium-up.sh|CNI Cilium + pool d'IP LoadBalancer + annonce L2 (ARP)"
-  "calico|calico/calico-up.sh|CNI Calico via l'opérateur Tigera (alternative, sans L2)"
-  "self-signed|self-signed/selfsigned-up.sh|AC locale + wildcard TLS auto-signé (openssl)"
-  "longhorn|longhorn/longhorn-up.sh|stockage bloc répliqué + StorageClass longhorn-r1"
-  "local-path|local-path-storage/local-path-up.sh|stockage local dynamique (hostPath)"
-  "minio|minio-s3/minio-up.sh|MinIO standalone (S3 + console)"
-  "minio-cluster|minio-s3/cluster/minio-cluster-up.sh|MinIO distribué 4 nœuds (cible des sauvegardes)"
-  "cnpg|cloudnative-pg/cloudnative-pg-up.sh|opérateur PostgreSQL HA + cluster de démo"
-  "keycloak|keycloak/keycloak-up.sh|Keycloak par son opérateur + realm 'lab' (IdP OIDC)"
-  "dex|dex/dex-up.sh|Dex devant Keycloak : connexion kubectl par OIDC (oidc-login)"
-  "vault|vault-cluster/vault-up.sh|HashiCorp Vault HA (Raft) + UI HTTPS"
-  "vso|vault-secret-operator/vso-up.sh|Vault Secrets Operator (l'opérateur SEUL, cf. son README)"
+  "platform|platform-up.sh|CNI + Envoy Gateway + metrics-server + wildcard TLS (the base)"
+  "cilium|cilium/cilium-up.sh|Cilium CNI + LoadBalancer IP pool + L2 announcement (ARP)"
+  "calico|calico/calico-up.sh|Calico CNI through the Tigera operator (alternative, no L2)"
+  "self-signed|self-signed/selfsigned-up.sh|local CA + self-signed wildcard TLS (openssl)"
+  "longhorn|longhorn/longhorn-up.sh|replicated block storage + longhorn-r1 StorageClass"
+  "local-path|local-path-storage/local-path-up.sh|dynamic local storage (hostPath)"
+  "minio|minio-s3/minio-up.sh|standalone MinIO (S3 + console)"
+  "minio-cluster|minio-s3/cluster/minio-cluster-up.sh|distributed 4-node MinIO (backup target)"
+  "cnpg|cloudnative-pg/cloudnative-pg-up.sh|PostgreSQL HA operator + demo cluster"
+  "keycloak|keycloak/keycloak-up.sh|Keycloak through its operator + 'lab' realm (OIDC IdP)"
+  "dex|dex/dex-up.sh|Dex in front of Keycloak: kubectl login over OIDC (oidc-login)"
+  "vault|vault-cluster/vault-up.sh|HashiCorp Vault HA (Raft) + HTTPS UI"
+  "vso|vault-secret-operator/vso-up.sh|Vault Secrets Operator (the operator ONLY, see its README)"
   "observability|observability/observability-up.sh|kube-prometheus-stack + Loki + Alloy"
-  "npd|node-problem-detector/node-problem-detector-up.sh|node-problem-detector (santé des nodes)"
-  "kyverno|kyverno/kyverno-up.sh|Kyverno + Policy Reporter (policies en Audit)"
-  "trivy|trivy-operator/trivy-operator-up.sh|Trivy Operator (CVE, config, secrets, RBAC)"
-  "argocd|argocd/argocd-up.sh|Argo CD (GitOps) + UI HTTPS"
-  "chaos|chaos-kube/chaoskube-up.sh|chaoskube : supprime 1 pod au hasard par heure"
+  "npd|node-problem-detector/node-problem-detector-up.sh|node-problem-detector (node health)"
+  "kyverno|kyverno/kyverno-up.sh|Kyverno + Policy Reporter (policies in Audit)"
+  "trivy|trivy-operator/trivy-operator-up.sh|Trivy Operator (CVEs, config, secrets, RBAC)"
+  "argocd|argocd/argocd-up.sh|Argo CD (GitOps) + HTTPS UI"
+  "chaos|chaos-kube/chaoskube-up.sh|chaoskube: deletes 1 random pod every hour"
 )
 
 usage() {
   cat <<EOF
-Usage : ./install.sh <talos|kubeadm> <composant...>
-        ./install.sh <talos|kubeadm> list
-        ./install.sh <talos|kubeadm> all
+Usage: ./install.sh <talos|kubeadm> <component...>
+       ./install.sh <talos|kubeadm> list
+       ./install.sh <talos|kubeadm> all
 
-Composants :
+Components:
 $(for e in "${CATALOGUE[@]}"; do printf '  %-14s %s\n' "${e%%|*}" "${e##*|}"; done)
 
-Variables utiles :
-  LAB_DOMAIN=...     domaine des UI (défaut : <distro>.lab.example.io)
-  LAB_ENV=...        chemin du lab.env du lab Vagrant (défaut : détecté dans ../<lab>/)
-  KUBECONFIG=...     défaut : <lab>/kubeconfig
-  SELF_SIGNED=false  wildcard TLS via cert-manager + Let's Encrypt au lieu de l'auto-signé
+Useful variables:
+  LAB_DOMAIN=...     domain of the UIs (default: <distro>.lab.example.io)
+  LAB_ENV=...        path to the Vagrant lab's lab.env (default: detected in ../<lab>/)
+  KUBECONFIG=...     default: <lab>/kubeconfig
+  SELF_SIGNED=false  wildcard TLS through cert-manager + Let's Encrypt instead of self-signed
 
-Documentation : README.md (EN) · LISEZ-MOI.md (FR) — et un README par dossier, avec
-l'installation PAS-À-PAS en commandes manuelles.
+Documentation: README.md (EN) · LISEZ-MOI.md (FR) — plus one README per directory, with the
+STEP-BY-STEP install as manual commands.
 EOF
 }
 
-resoudre() {  # resoudre ALIAS -> chemin du script, ou vide
+resolve() {  # resolve ALIAS -> path of the script, or empty
   local e
   for e in "${CATALOGUE[@]}"; do
     [ "${e%%|*}" = "$1" ] && { printf '%s' "$(printf '%s' "$e" | cut -d'|' -f2)"; return; }
@@ -76,42 +76,42 @@ resoudre() {  # resoudre ALIAS -> chemin du script, ou vide
 
 # --- Arguments ---------------------------------------------------------------
 [ $# -ge 1 ] || { usage; exit 1; }
-k8s_init "$@"           # consomme la distro, laisse le reste dans K8S_ARGS
+k8s_init "$@"           # consumes the distro, leaves the rest in K8S_ARGS
 set -- ${K8S_ARGS[@]+"${K8S_ARGS[@]}"}
 [ -n "${1:-}" ] || { usage; exit 1; }
 
 case "${1:-}" in
   -h|--help|help) usage; exit 0 ;;
   list)
-    log "Composants installables sur ${K8S_DISTRO} (${DISTRO_LABEL})"
+    log "Components installable on ${K8S_DISTRO} (${DISTRO_LABEL})"
     for e in "${CATALOGUE[@]}"; do printf '  %-14s %s\n' "${e%%|*}" "${e##*|}"; done
     exit 0 ;;
 esac
 
-cibles=("$@")
+targets=("$@")
 if [ "${1}" = "all" ]; then
-  cibles=()
+  targets=()
   for e in "${CATALOGUE[@]}"; do
     case "${e%%|*}" in
-      calico|local-path|self-signed) continue ;;   # alternatives, pas des étapes de « all »
+      calico|local-path|self-signed) continue ;;   # alternatives, not steps of `all`
     esac
-    cibles+=("${e%%|*}")
+    targets+=("${e%%|*}")
   done
 fi
 
-# Validation AVANT d'installer quoi que ce soit : mieux vaut une faute de frappe rejetée
-# tout de suite qu'un `all` qui s'arrête au milieu.
-for cible in "${cibles[@]}"; do
-  [ -n "$(resoudre "$cible")" ] || { echo "ERREUR : composant '${cible}' inconnu." >&2; usage >&2; exit 1; }
+# Validation BEFORE installing anything: better a typo rejected right away than an `all` that
+# stops halfway through.
+for target in "${targets[@]}"; do
+  [ -n "$(resolve "$target")" ] || { echo "ERROR: unknown component '${target}'." >&2; usage >&2; exit 1; }
 done
 
-log "Cible : ${K8S_DISTRO} (${DISTRO_LABEL}) — ${#cibles[@]} composant(s) : ${cibles[*]}"
-resume_distro
+log "Target: ${K8S_DISTRO} (${DISTRO_LABEL}) — ${#targets[@]} component(s): ${targets[*]}"
+distro_summary
 
-for cible in "${cibles[@]}"; do
-  script="$(resoudre "$cible")"
-  log "▶ ${cible} — ${script}"
+for target in "${targets[@]}"; do
+  script="$(resolve "$target")"
+  log "▶ ${target} — ${script}"
   bash "${REPO_ROOT}/${script}" "$K8S_DISTRO"
 done
 
-log "Terminé : ${cibles[*]}"
+log "Done: ${targets[*]}"

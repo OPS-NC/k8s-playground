@@ -35,21 +35,21 @@ LOKI_VERSION="${LOKI_VERSION:-7.2.0}"          # app Loki v3.6.11
 ALLOY_VERSION="${ALLOY_VERSION:-1.11.0}"       # app Alloy v1.18.0
 
 need kubectl helm
-exiger_apiserver
-exiger_sc longhorn-r1
+require_apiserver
+require_sc longhorn-r1
 
 # ============================================================================
 log "[0/4] Namespace monitoring (PodSecurity privileged pour node-exporter + Alloy)"
 kubectl apply -f "${HERE}/namespace.yaml"
 
 log "[1/4] kube-prometheus-stack ${KPS_VERSION} (Prometheus + Grafana + Alertmanager)"
-resume_distro
+distro_summary
 echo "    moniteurs control-plane : ${KPS_SCRAPE_CONTROL_PLANE}"
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
 helm repo update prometheus-community >/dev/null
 # Les values portent le domaine (Grafana domain/root_url, externalUrl) : rendu temporaire.
 KPS_VALUES="$(mktemp)"; trap 'rm -f "$KPS_VALUES"' EXIT
-rendre "${HERE}/kube-prometheus-stack-values.yaml" > "$KPS_VALUES"
+render "${HERE}/kube-prometheus-stack-values.yaml" > "$KPS_VALUES"
 # Les values portent les moniteurs control-plane ACTIVÉS (cas kubeadm) ; sur Talos le
 # profil les coupe ici — un seul fichier de values pour les deux distributions.
 kps_sets=()
@@ -79,7 +79,7 @@ helm upgrade --install alloy grafana/alloy -n monitoring \
 kubectl -n monitoring rollout status daemonset/alloy --timeout=180s || true
 
 log "[4/4] HTTPRoutes (grafana / prometheus / alertmanager .${LAB_DOMAIN})"
-rendre "${HERE}/httproutes.yaml" | kubectl apply -f -
+render "${HERE}/httproutes.yaml" | kubectl apply -f -
 
 # ============================================================================
 log "Observabilité installée."

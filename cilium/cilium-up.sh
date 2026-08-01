@@ -30,11 +30,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${HERE}/../lib/common.sh"
 k8s_init "$@"
 
-CILIUM_VERSION="$(lire_param CILIUM_VERSION 1.20.0)"
+CILIUM_VERSION="$(read_param CILIUM_VERSION 1.20.0)"
 
 # Plage d'IP LoadBalancer (pas dans cluster.env : c'est une pure intention).
-LB_POOL_START="$(lire_param LB_POOL_START 192.168.56.200)"
-LB_POOL_END="$(lire_param LB_POOL_END 192.168.56.230)"
+LB_POOL_START="$(read_param LB_POOL_START 192.168.56.200)"
+LB_POOL_END="$(read_param LB_POOL_END 192.168.56.230)"
 
 # Remplacement de kube-proxy : DOIT refléter ce qui a réellement été fait au bootstrap.
 # kubeadm : `kubeadm init` a tourné avec `--skip-phases=addon/kube-proxy` quand la valeur
@@ -42,7 +42,7 @@ LB_POOL_END="$(lire_param LB_POOL_END 192.168.56.230)"
 # relais en eBPF. Se tromper de valeur casse tous les Services du cluster.
 # Talos : kube-proxy est toujours posé par le bootstrap → le profil force `false`.
 if [ "$KUBE_PROXY_REPLACEABLE" = "true" ]; then
-  KUBE_PROXY_REPLACEMENT="$(lire_param KUBE_PROXY_REPLACEMENT "$DEFAULT_KUBE_PROXY_REPLACEMENT")"
+  KUBE_PROXY_REPLACEMENT="$(read_param KUBE_PROXY_REPLACEMENT "$DEFAULT_KUBE_PROXY_REPLACEMENT")"
   KUBE_PROXY_REPLACEMENT="$(printf '%s' "$KUBE_PROXY_REPLACEMENT" | tr '[:upper:]' '[:lower:]')"
   case "$KUBE_PROXY_REPLACEMENT" in
     true|false) ;;
@@ -57,18 +57,18 @@ fi
 #   - la VIP survit à la perte de cp1 (VRRP/Talos la déplace), l'IP de cp1 non ;
 #   - c'est déjà l'adresse figée dans les certificats et les kubeconfig, donc la seule
 #     que le certificat de l'apiserver couvre à coup sûr.
-VIP="$(lire_param VIP "$DEFAULT_VIP")"
+VIP="$(read_param VIP "$DEFAULT_VIP")"
 
 # CIDR des pods du cluster (`networking.podSubnet` de kubeadm,
 # `cluster.network.podSubnets` de Talos).
-POD_CIDR="$(lire_param POD_CIDR "$DEFAULT_POD_CIDR")"
+POD_CIDR="$(read_param POD_CIDR "$DEFAULT_POD_CIDR")"
 
 # Interface host-only. Sur kubeadm elle est DÉTECTÉE dans la VM par cluster-up.sh
 # (`_out/cluster.env`) car certaines box gardent `eth1` ; sur Talos c'est `enp0s8`.
-HOSTONLY_IF="$(lire_param HOSTONLY_IF "$DEFAULT_HOSTONLY_IF")"
+HOSTONLY_IF="$(read_param HOSTONLY_IF "$DEFAULT_HOSTONLY_IF")"
 
 need kubectl helm
-exiger_apiserver
+require_apiserver
 
 # --- Garde-fou : un CNI déjà en place -----------------------------------------
 # Poser Cilium par-dessus flannel donne deux CNI concurrents et un réseau pod cassé.
@@ -91,7 +91,7 @@ fi
 
 # ============================================================================
 log "Cilium ${CILIUM_VERSION} (CNI + L2, interface host-only ${HOSTONLY_IF})"
-resume_distro
+distro_summary
 echo "    kube-proxy : $([ "$KUBE_PROXY_REPLACEMENT" = true ] && echo 'REMPLACÉ en eBPF' || echo 'conservé (Cilium par-dessus)')"
 echo "    pod CIDR   : ${POD_CIDR}   apiserver : ${VIP}:6443   ipam : ${CILIUM_IPAM_MODE}"
 helm repo add cilium https://helm.cilium.io/ >/dev/null 2>&1 || true
@@ -127,7 +127,7 @@ fi
 # les forcer y serait NUISIBLE, cf. lib/profiles/kubeadm.sh).
 while IFS= read -r extra; do
   [ -n "$extra" ] && sets+=("$extra")
-done < <(cilium_sets_specifiques)
+done < <(cilium_specific_sets)
 
 helm upgrade --install cilium cilium/cilium -n kube-system --create-namespace \
   --version "${CILIUM_VERSION}" "${sets[@]}"

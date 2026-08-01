@@ -43,7 +43,7 @@ TLS_CRT="${CERT_DIR}/tls.crt"
 
 # --- Pré-requis --------------------------------------------------------------
 need kubectl openssl
-exiger_apiserver
+require_apiserver
 
 mkdir -p "$CERT_DIR"
 chmod 700 "$CERT_DIR"

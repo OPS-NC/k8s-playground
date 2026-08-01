@@ -22,7 +22,7 @@ k8s_init "$@"
 NPD_VERSION="${NPD_VERSION:-2.3.14}"        # app v0.8.19
 
 need kubectl helm
-exiger_apiserver
+require_apiserver
 
 log "Namespace node-problem-detector en PodSecurity 'privileged' (accès /dev/kmsg)"
 kubectl create namespace node-problem-detector --dry-run=client -o yaml | kubectl apply -f - >/dev/null

@@ -140,7 +140,7 @@ Les scripts ne stockent **rien**. `lab.env` (l'intention : domaine, mode TLS, CN
 VM) et `_out/` (les faits : `talosconfig`, `cluster.env`, l'AC locale dans `_out/self-signed/`,
 `_out/vault-init.json`…) vivent dans le dépôt du **lab**, avec le `kubeconfig` juste à côté, à
 sa racine. Il n'y a qu'**une** source de vérité pour la topologie, celle du lab — c'est
-pourquoi ce dépôt ne porte ni `lab.env`, ni modèle de `lab.env`. `_resoudre_lab_dir()`, dans
+pourquoi ce dépôt ne porte ni `lab.env`, ni modèle de `lab.env`. `_resolve_lab_dir()`, dans
 `lib/common.sh`, cherche ce dossier dans cet ordre :
 
 | # | Candidat | S'applique quand |
@@ -217,7 +217,7 @@ Par ordre de priorité :
 | 7 | le dépôt du lab **voisin** | `../Vagrant-Talos/talos/cluster-up.sh` → `talos` · `../Vagrant-KubeADM/kubeadm/cluster-up.sh` → `kubeadm` |
 | 8 | **sondage** du cluster | `osImage` du 1er node : `Talos …` → `talos`, sinon `kubeadm` |
 
-Les sources 5 à 8 sont `_detecter_distro()`, quatre familles de signaux classées par la
+Les sources 5 à 8 sont `_detect_distro()`, quatre familles de signaux classées par la
 précocité avec laquelle elles deviennent disponibles :
 
 | Signal | Disponible dès | Coût |
@@ -264,13 +264,13 @@ des variables.
 | Sujet | Talos Linux | Debian 13 + kubeadm | Variable du profil |
 |---|---|---|---|
 | **Domaine par défaut des UI** | `talos.lab.example.io` | `kubeadm.lab.example.io` | `DEFAULT_LAB_DOMAIN` |
-| **PodSecurity (niveau cluster)** | `baseline` **appliqué** → un pod privilégié exige un namespace étiqueté `privileged`, sinon échec **silencieux** | aucun niveau appliqué → les mêmes labels ne débloquent rien, ils documentent l'intention | `PODSECURITY_DEFAUT` |
+| **PodSecurity (niveau cluster)** | `baseline` **appliqué** → un pod privilégié exige un namespace étiqueté `privileged`, sinon échec **silencieux** | aucun niveau appliqué → les mêmes labels ne débloquent rien, ils documentent l'intention | `PODSECURITY_DEFAULT` |
 | **Système de fichiers** | immuable : `/` et `/usr` en lecture seule, seul `/var` est inscriptible | ordinaire, tout est inscriptible | — |
 | **local-path-provisioner** | `/var/local-path-provisioner` | `/opt/local-path-provisioner` (chemin amont) | `LOCAL_PATH_DIR` |
-| **Prérequis iSCSI (Longhorn)** | **extension** `iscsi-tools` cuite dans l'image d'install (irrécupérable à chaud) + montage kubelet `rshared` via `talosctl patch mc` | **paquet** `open-iscsi` posé par `provision.sh` ; `/var/lib/longhorn` est un dossier ordinaire | `LONGHORN_PREP_REQUISE` |
+| **Prérequis iSCSI (Longhorn)** | **extension** `iscsi-tools` cuite dans l'image d'install (irrécupérable à chaud) + montage kubelet `rshared` via `talosctl patch mc` | **paquet** `open-iscsi` posé par `provision.sh` ; `/var/lib/longhorn` est un dossier ordinaire | `LONGHORN_PREP_REQUIRED` |
 | **kube-proxy** | toujours posé par le bootstrap, non remplaçable ici | **optionnel** : remplaçable par Cilium en eBPF (`KUBE_PROXY_REPLACEMENT=true`, défaut du lab) | `KUBE_PROXY_REPLACEABLE` |
 | **Cilium — IPAM** | `ipam.mode=kubernetes` (podCIDR posés par le kube-controller-manager) | `ipam.mode=cluster-pool` (l'opérateur Cilium découpe le CIDR pod) | `CILIUM_IPAM_MODE` |
-| **Cilium — valeurs OS** | `cgroup.autoMount=false` + `cgroup.hostRoot` + capabilities explicites (**exigés**) | aucune : les défauts du chart sont les bons, les forcer serait **nuisible** | `cilium_sets_specifiques()` |
+| **Cilium — valeurs OS** | `cgroup.autoMount=false` + `cgroup.hostRoot` + capabilities explicites (**exigés**) | aucune : les défauts du chart sont les bons, les forcer serait **nuisible** | `cilium_specific_sets()` |
 | **Calico** | `flexVolumePath: None` et CSI `None` **obligatoires** (`/usr` en lecture seule) | mêmes réglages, mais comme simple allègement | (manifeste commun) |
 | **flannel (`CNI=flannel`)** | déjà posé par le bootstrap Talos → rien à installer | installé ici par le chart `flannel/flannel` | `FLANNEL_PRE_INSTALLED` |
 | **Trivy — scanners « node »** | **désactivés** : le `node-collector` bind-monte `/etc/systemd` → `read-only file system` | activés : les chemins existent et sont lisibles | `TRIVY_NODE_COLLECTOR` |
@@ -279,7 +279,7 @@ des variables.
 | **Faits du cluster** | `_out/controlplane.yaml` (`podSubnets`) | `_out/cluster.env` (CIDR, interface, kube-proxy) | — |
 | **Moteur KV Vault de démo** | `talos-lab/` | `kubeadm-lab/` | `VAULT_KV_MOUNT` |
 | **AC auto-signée** | `O=Vagrant-Talos lab` | `O=Vagrant-KubeADM lab` | `CA_ORG`, `CA_FILE_NAME` |
-| **Flags OIDC de l'apiserver (`dex/`)** | `talosctl patch mc` — **la configuration machine est une API** ; `extraArgs` est une map | ConfigMap `kubeadm-config` + `kubeadm init phase` **sur chaque control plane** ; `extraArgs` est une liste de `{name, value}` (v1beta4) | `APISERVER_OIDC_PATCH`, `APISERVER_OIDC_MECANISME`, `apiserver_oidc_commandes()` |
+| **Flags OIDC de l'apiserver (`dex/`)** | `talosctl patch mc` — **la configuration machine est une API** ; `extraArgs` est une map | ConfigMap `kubeadm-config` + `kubeadm init phase` **sur chaque control plane** ; `extraArgs` est une liste de `{name, value}` (v1beta4) | `APISERVER_OIDC_PATCH`, `APISERVER_OIDC_MECHANISM`, `apiserver_oidc_commands()` |
 
 Tout le reste — Argo CD, Kyverno, MinIO, CloudNativePG, Vault, Envoy Gateway, cert-manager,
 chaoskube, node-problem-detector, WordPress — est **strictement identique** sur les deux
@@ -340,7 +340,7 @@ remplissent le **même** Secret (`wildcard-<LAB_DOMAIN en tirets>-tls`) : aucun 
 ## 🌐 `LAB_DOMAIN` — le domaine des UI
 
 À ses côtés, deux autres marqueurs **neutres**. Le dépôt est **public** : aucun manifeste ne porte de vraie valeur. Trois marqueurs neutres
-sont substitués **à la volée** (fonction `rendre` de `lib/common.sh`), sans jamais réécrire un
+sont substitués **à la volée** (fonction `render` de `lib/common.sh`), sans jamais réécrire un
 fichier versionné — `git status` reste propre :
 
 | Marqueur versionné | Remplacé par | Vient de |

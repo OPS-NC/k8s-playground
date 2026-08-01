@@ -4,7 +4,7 @@
 # Talos, mais PAS sur kubeadm, d'où l'intérêt de la règle. Elle montre aussi comment Kyverno
 # exprime une règle de sécurité (et pourrait aller plus loin que PSA : exceptions ciblées,
 # messages personnalisés, rapport centralisé). `=(...)` = "si le champ existe, il doit
-# valoir ça" — évite de rendre securityContext obligatoire juste pour tester privileged.
+# valoir ça" — évite de render securityContext obligatoire juste pour tester privileged.
 #
 # NOTE : `longhorn-system` est labellisé `privileged` (il en a besoin) ; cette policy le
 # signalera en Audit — c'est attendu et illustre justement l'intérêt d'une PolicyException

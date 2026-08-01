@@ -10,7 +10,7 @@
 # ⚠️ LE prérequis iSCSI n'est PAS au même endroit selon la distribution — c'est la
 #    différence structurante de ce composant :
 #
-#    Talos (LONGHORN_PREP_REQUISE=true) : deux étapes préalables, prises en charge ici.
+#    Talos (LONGHORN_PREP_REQUIRED=true) : deux étapes préalables, prises en charge ici.
 #      1. les extensions `iscsi-tools` / `util-linux-tools` sont CUITES dans l'image de
 #         l'installeur (`talosctl get extensions`) : un node sans elles est irrécupérable
 #         sans réinstallation (`iscsiadm: not found` => CSI en CrashLoopBackOff), d'où un
@@ -20,7 +20,7 @@
 #         de montage bidirectionnelle. Appliqué à chaud, sans reboot, et seulement là où
 #         il manque.
 #
-#    kubeadm (LONGHORN_PREP_REQUISE=false) : les deux tombent.
+#    kubeadm (LONGHORN_PREP_REQUIRED=false) : les deux tombent.
 #      1. le prérequis iSCSI est un PAQUET : `kubeadm/provision.sh` fait
 #         `apt-get install -y open-iscsi nfs-common`, `systemctl enable --now iscsid` et
 #         charge `iscsi_tcp` sur CHAQUE node, au provisioning ;
@@ -44,20 +44,20 @@ LONGHORN_VERSION="${LONGHORN_VERSION:-1.12.0}"
 
 # --- Pré-requis -------------------------------------------------------------
 need kubectl helm
-if [ "$LONGHORN_PREP_REQUISE" = "true" ]; then
+if [ "$LONGHORN_PREP_REQUIRED" = "true" ]; then
   need talosctl
   export TALOSCONFIG="${TALOSCONFIG:-${LAB_DIR}/_out/talosconfig}"
 fi
-exiger_apiserver
+require_apiserver
 
 # --- Préparation des nodes (Talos uniquement) -------------------------------
 # Les volumes Longhorn ne vivent que sur des nodes planifiables : on adresse donc les
 # workers, dont les IP se déduisent des mêmes clés que le Vagrantfile du lab.
-if [ "$LONGHORN_PREP_REQUISE" = "true" ]; then
-  WORKERS="$(lire_param WORKERS 3)"
-  NETWORK="$(lire_param NETWORK 192.168.56)"
-  WK_IP_START="$(lire_param WK_IP_START 101)"
-  WK_IP_STEP="$(lire_param WK_IP_STEP 1)"
+if [ "$LONGHORN_PREP_REQUIRED" = "true" ]; then
+  WORKERS="$(read_param WORKERS 3)"
+  NETWORK="$(read_param NETWORK 192.168.56)"
+  WK_IP_START="$(read_param WK_IP_START 101)"
+  WK_IP_STEP="$(read_param WK_IP_STEP 1)"
   worker_ips=()
   for ((i = 1; i <= WORKERS; i++)); do
     worker_ips+=("${NETWORK}.$((WK_IP_START + (i - 1) * WK_IP_STEP))")
@@ -143,7 +143,7 @@ kubectl apply -f "${HERE}"/longhorn-r1-storageclass.yaml
 log "[3/3] HTTPRoute longhorn.${LAB_DOMAIN}"
 # Le manifeste versionné porte le domaine neutre : substitué à la volée, comme
 # partout ailleurs dans k8s-playground/ (cf. ../README.md).
-rendre "${HERE}"/httproute.yaml | kubectl apply -f -
+render "${HERE}"/httproute.yaml | kubectl apply -f -
 
 # ============================================================================
 log "Longhorn installé."

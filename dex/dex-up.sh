@@ -48,7 +48,7 @@ REALM="${REALM:-lab}"
 
 # --- Pré-requis -------------------------------------------------------------
 need kubectl helm openssl
-exiger_apiserver
+require_apiserver
 kubectl get crd keycloakoidcclients.k8s.keycloak.org >/dev/null 2>&1 \
   || fail "l'opérateur Keycloak est absent (CRD keycloakoidcclients.k8s.keycloak.org).
         Installe-le d'abord :  ./install.sh ${K8S_DISTRO} keycloak"
@@ -95,7 +95,7 @@ fi
 log "[2/5] Client OIDC 'dex' dans le realm ${REALM} (CRD KeycloakOIDCClient)"
 # Le manifeste versionné porte le domaine neutre : substitué à la volée, comme partout
 # ailleurs dans k8s-playground/ (cf. ../README.md).
-rendre "${HERE}/01-keycloak-client.yaml" | kubectl apply -f -
+render "${HERE}/01-keycloak-client.yaml" | kubectl apply -f -
 # La condition `Ready` n'apparaît qu'une fois le client réellement créé côté Keycloak.
 # `|| true` : le résumé final dit la vérité, et l'objet est reconcilié en continu.
 kubectl -n "$KC_NS" wait --for=condition=Ready keycloakoidcclient/dex --timeout=180s || true
@@ -107,27 +107,27 @@ helm repo update dex >/dev/null
 # values.yaml porte les deux URL publiques (issuer Dex + issuer du realm) : rendu dans un
 # temporaire, le fichier versionné n'est jamais réécrit.
 VALUES="$(mktemp)"; trap 'rm -f "$VALUES"' EXIT
-rendre "${HERE}/values.yaml" > "$VALUES"
+render "${HERE}/values.yaml" > "$VALUES"
 helm upgrade --install dex dex/dex -n "$NS" \
   --version "${DEX_VERSION}" --values "$VALUES"
 kubectl -n "$NS" rollout status deploy/dex --timeout=300s
 
 # ============================================================================
 log "[4/5] HTTPRoute dex.${LAB_DOMAIN} + liaisons RBAC des groupes"
-rendre "${HERE}/httproute.yaml" | kubectl apply -f -
+render "${HERE}/httproute.yaml" | kubectl apply -f -
 # rbac.yaml ne porte aucun domaine : appliqué tel quel.
 kubectl apply -f "${HERE}/rbac.yaml"
 
 # ============================================================================
 log "[5/5] Ce qu'il reste à faire — câbler le serveur d'API sur Dex"
-echo "    Mécanisme ${K8S_DISTRO} : ${APISERVER_OIDC_MECANISME}"
+echo "    Mécanisme ${K8S_DISTRO} : ${APISERVER_OIDC_MECHANISM}"
 echo "    Patch fourni            : dex/${APISERVER_OIDC_PATCH}"
 echo
 echo "    /!\\ Ces commandes REDÉMARRENT le serveur d'API. Un émetteur injoignable"
 echo "        l'empêche de redémarrer. Un control plane à la fois, en vérifiant entre"
 echo "        chaque. Détails et cas SELF_SIGNED=true : dex/README.md."
 echo
-apiserver_oidc_commandes "${HERE}/${APISERVER_OIDC_PATCH}"
+apiserver_oidc_commands "${HERE}/${APISERVER_OIDC_PATCH}"
 
 # ============================================================================
 log "Dex installé."

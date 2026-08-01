@@ -13,8 +13,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 k8s_init "$@"
 
 need kubectl
-exiger_apiserver
-exiger_sc local-path
+require_apiserver
+require_sc local-path
 
 MINIO_ROOT_USER="${MINIO_ROOT_USER:-admin}"
 MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-$(openssl rand -base64 18 | tr -d '/+=' | head -c 24)}"
@@ -32,7 +32,7 @@ fi
 
 log "Déploiement MinIO (image officielle) + Service + HTTPRoutes"
 # Le manifeste porte les hostnames des HTTPRoutes + MINIO_BROWSER_REDIRECT_URL.
-rendre "${HERE}/minio-s3.yaml" | kubectl apply -f -
+render "${HERE}/minio-s3.yaml" | kubectl apply -f -
 kubectl -n minio-s3 rollout status deploy/minio --timeout=180s
 
 # ============================================================================

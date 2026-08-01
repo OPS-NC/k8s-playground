@@ -47,9 +47,9 @@ BASE_URL="https://raw.githubusercontent.com/keycloak/keycloak-k8s-resources/${KE
 
 # --- Pré-requis -------------------------------------------------------------
 need kubectl openssl
-exiger_apiserver
+require_apiserver
 # La base vit sur la SC socle des bases de ce dépôt.
-exiger_sc longhorn-r1
+require_sc longhorn-r1
 # L'opérateur CloudNativePG est un composant à part : sans lui, le `Cluster` posé plus
 # bas est un objet inerte que personne ne reconcilie, et Keycloak attend une base qui
 # n'arrivera jamais.
@@ -88,7 +88,7 @@ kubectl -n "$NS" rollout status deploy/keycloak-operator --timeout=300s
 log "[3/5] CR Keycloak (l'opérateur en dérive StatefulSet, Service et configuration)"
 # Le manifeste versionné porte le domaine neutre : substitué à la volée, comme partout
 # ailleurs dans k8s-playground/ (cf. ../README.md).
-rendre "${HERE}/02-keycloak.yaml" | kubectl apply -f -
+render "${HERE}/02-keycloak.yaml" | kubectl apply -f -
 echo "    attente de Keycloak (migration du schéma au premier démarrage : ~2 min)..."
 # La condition `Ready` du CR n'apparaît qu'une fois le StatefulSet déroulé ET le serveur
 # joignable. `|| true` : on préfère continuer et laisser le résumé final dire la vérité
@@ -108,13 +108,13 @@ else
     --from-literal=password="$(openssl rand -base64 18)"
   echo "    Secret keycloak-demo-user créé (mot de passe aléatoire, jamais affiché)."
 fi
-rendre "${HERE}/03-realm-lab.yaml" | kubectl apply -f -
+render "${HERE}/03-realm-lab.yaml" | kubectl apply -f -
 echo "    attente du Job d'import..."
 kubectl -n "$NS" wait --for=condition=Done keycloakrealmimport/lab --timeout=300s || true
 
 # ============================================================================
 log "[5/5] HTTPRoute keycloak.${LAB_DOMAIN}"
-rendre "${HERE}/httproute.yaml" | kubectl apply -f -
+render "${HERE}/httproute.yaml" | kubectl apply -f -
 
 # ============================================================================
 log "Keycloak installé."

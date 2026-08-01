@@ -1,105 +1,105 @@
 #!/usr/bin/env bash
 #
-# lib/profiles/kubeadm.sh — profil « Debian 13 + kubeadm » (dépôt Vagrant-KubeADM).
+# lib/profiles/kubeadm.sh — the "Debian 13 + kubeadm" profile (Vagrant-KubeADM repository).
 #
-# Ce que ce profil dit, en une phrase : l'OS est un Linux ORDINAIRE. Rien n'est en lecture
-# seule, systemd est là, les paquets s'installent (`open-iscsi` pour Longhorn), et
-# l'admission PodSecurity n'applique AUCUN niveau au niveau cluster par défaut. La plupart
-# des contournements écrits pour Talos deviennent donc inutiles ici — on les documente
-# comme tels au lieu de les supprimer, pour que la comparaison reste lisible.
+# What this profile says, in one sentence: the OS is an ORDINARY Linux. Nothing is read-only,
+# systemd is there, packages install (`open-iscsi` for Longhorn), and PodSecurity admission
+# enforces NO level cluster-wide by default. Most of the workarounds written for Talos are
+# therefore pointless here — we document them as such instead of deleting them, so that the
+# comparison stays readable.
 #
-# La contrepartie : `kubeadm init` n'installe AUCUN réseau pod (les nodes restent NotReady
-# jusqu'à ce que la couche CNI passe) et kube-proxy est OPTIONNEL — il peut être remplacé
-# par Cilium en eBPF (`KUBE_PROXY_REPLACEMENT=true`, le défaut du lab).
+# The flip side: `kubeadm init` installs NO pod network (nodes stay NotReady until the CNI
+# layer lands) and kube-proxy is OPTIONAL — it can be replaced by Cilium in eBPF
+# (`KUBE_PROXY_REPLACEMENT=true`, the lab default).
 
 # shellcheck shell=bash
 
 DISTRO_LABEL="Debian 13 + kubeadm"
-LAB_REPO_NAME="Vagrant-KubeADM"          # dépôt Vagrant voisin (lab.env, _out/)
+LAB_REPO_NAME="Vagrant-KubeADM"          # neighbouring Vagrant repository (lab.env, _out/)
 DEFAULT_LAB_DOMAIN="kubeadm.lab.example.io"
-CA_ORG="Vagrant-KubeADM lab"             # sujet de l'AC auto-signée (self-signed/)
-CA_FILE_NAME="vagrant-kubeadm-lab.crt"   # nom suggéré à l'import dans le trust store
-CLUSTER_UP_HINT="./kubeadm/cluster-up.sh (dépôt Vagrant-KubeADM)"
+CA_ORG="Vagrant-KubeADM lab"             # subject of the self-signed CA (self-signed/)
+CA_FILE_NAME="vagrant-kubeadm-lab.crt"   # suggested name when importing into the trust store
+CLUSTER_UP_HINT="./kubeadm/cluster-up.sh (Vagrant-KubeADM repository)"
 CLUSTER_RESET_HINT="./kubeadm/cluster-reset.sh && ./kubeadm/cluster-up.sh"
 
-# --- Réseau ------------------------------------------------------------------
-# Interface host-only : Debian 13 utilise les noms prédictibles (`enp0s8`) mais certaines
-# box Vagrant gardent `eth1`. cluster-up.sh la DÉTECTE dans la VM et l'écrit dans
-# `_out/cluster.env` — ce défaut n'est qu'un dernier recours.
+# --- Network -----------------------------------------------------------------
+# Host-only interface: Debian 13 uses predictable names (`enp0s8`) but some Vagrant boxes keep
+# `eth1`. cluster-up.sh DETECTS it inside the VM and writes it to `_out/cluster.env` — this
+# default is only a last resort.
 DEFAULT_HOSTONLY_IF="eth1"
-# CIDR pod : `networking.podSubnet` passé à `kubeadm init`.
+# Pod CIDR: `networking.podSubnet` passed to `kubeadm init`.
 DEFAULT_POD_CIDR="10.244.0.0/16"
-# kube-proxy remplaçable en eBPF par Cilium (défaut du lab kubeadm).
+# kube-proxy replaceable in eBPF by Cilium (the kubeadm lab default).
 KUBE_PROXY_REPLACEABLE=true
 DEFAULT_KUBE_PROXY_REPLACEMENT="true"
-# Le lab kubeadm est en HA : l'apiserver se joint par la VIP keepalived, jamais par l'IP
-# de cp1 (la VIP survit à la perte de cp1 et c'est elle qui est dans les certificats).
+# The kubeadm lab is HA: the apiserver is reached through the keepalived VIP, never through
+# cp1's IP (the VIP survives losing cp1, and it is the one in the certificates).
 DEFAULT_VIP="192.168.56.5"
-# flannel : AUCUN CNI n'est posé au bootstrap, c'est donc à la couche plateforme de
-# l'installer (chart flannel/flannel).
+# flannel: NO CNI is installed at bootstrap, so it is up to the platform layer to install it
+# (the flannel/flannel chart).
 FLANNEL_PRE_INSTALLED=false
 
 # --- Cilium ------------------------------------------------------------------
-# Sur Debian, les défauts du chart sont les bons : le chart monte lui-même le cgroup2 et
-# calcule les capabilities de l'agent. Les `cgroup.autoMount.enabled=false`,
-# `cgroup.hostRoot` et `securityContext.capabilities.*` que documente Cilium sont propres
-# à Talos — ici ils seraient NUISIBLES.
-CILIUM_IPAM_MODE="cluster-pool"          # le pool pod est géré par l'opérateur Cilium
-cilium_sets_specifiques() { :; }         # rien à ajouter
+# On Debian the chart defaults are the right ones: the chart mounts cgroup2 itself and works
+# out the agent capabilities. The `cgroup.autoMount.enabled=false`, `cgroup.hostRoot` and
+# `securityContext.capabilities.*` that Cilium documents are specific to Talos — here they
+# would be HARMFUL.
+CILIUM_IPAM_MODE="cluster-pool"          # the pod pool is managed by the Cilium operator
+cilium_specific_sets() { :; }            # nothing to add
 
-# --- Stockage ----------------------------------------------------------------
-# local-path-provisioner : chemin de l'AMONT. Sur Debian 13 `/opt` est inscriptible et le
-# helper-pod le crée sans rien demander à personne.
+# --- Storage -----------------------------------------------------------------
+# local-path-provisioner: the UPSTREAM path. On Debian 13 `/opt` is writable and the helper
+# pod creates it without asking anyone.
 LOCAL_PATH_DIR="/opt/local-path-provisioner"
-# Longhorn : le prérequis iSCSI est un PAQUET (`open-iscsi`, posé par kubeadm/provision.sh),
-# pas une extension d'image système — rien à vérifier ni à patcher avant le chart, et
-# `/var/lib/longhorn` est un dossier ordinaire dont la propagation de montage est déjà bonne.
-LONGHORN_PREP_REQUISE=false
+# Longhorn: the iSCSI prerequisite is a PACKAGE (`open-iscsi`, installed by
+# kubeadm/provision.sh), not a system-image extension — nothing to check or patch before the
+# chart, and `/var/lib/longhorn` is an ordinary directory whose mount propagation is already
+# fine.
+LONGHORN_PREP_REQUIRED=false
 
-# --- Sécurité / admission ----------------------------------------------------
-# Aucun niveau PodSecurity appliqué au niveau cluster : les labels `privileged` posés sur
-# les namespaces ne débloquent rien AUJOURD'HUI. On les garde parce qu'ils documentent le
-# besoin réel des pods et qu'ils protègent le jour où l'admission est durcie.
-PODSECURITY_DEFAUT="(aucun niveau appliqué par défaut)"
-# trivy-operator : le node-collector bind-monte /etc/systemd, /lib/systemd, /etc/kubernetes…
-# Tous ces chemins existent et sont lisibles sur Debian → les deux scanners « node »
-# fonctionnent tels quels.
+# --- Security / admission ----------------------------------------------------
+# No PodSecurity level enforced cluster-wide: the `privileged` labels put on namespaces unlock
+# nothing TODAY. We keep them because they document what the pods actually need, and because
+# they protect the day admission is hardened.
+PODSECURITY_DEFAULT="(no level enforced by default)"
+# trivy-operator: the node-collector bind-mounts /etc/systemd, /lib/systemd, /etc/kubernetes…
+# All those paths exist and are readable on Debian → both "node" scanners work as they are.
 TRIVY_NODE_COLLECTOR=true
 
-# --- Observabilité -----------------------------------------------------------
-# controller-manager et scheduler écoutent sur 0.0.0.0 (bind-address posé par
-# kubeadm/templates/kubeadm-init.yaml.tpl) et etcd expose ses métriques sur 0.0.0.0:2381 :
-# les trois moniteurs du chart sont donc SCRUTABLES. kube-proxy reste hors-jeu (soit
-# absent car remplacé par Cilium, soit métriques en loopback uniquement).
+# --- Observability -----------------------------------------------------------
+# controller-manager and scheduler listen on 0.0.0.0 (bind-address set by
+# kubeadm/templates/kubeadm-init.yaml.tpl) and etcd exposes its metrics on 0.0.0.0:2381: all
+# three chart monitors are therefore SCRAPABLE. kube-proxy stays out of the picture (either
+# absent because Cilium replaced it, or metrics on loopback only).
 KPS_SCRAPE_CONTROL_PLANE=true
 
-# --- Authentification OIDC du serveur d'API (dex/) ----------------------------
-# Le kube-apiserver est un POD STATIQUE : son manifeste est un fichier sur le disque de
-# chaque control plane, régénéré par `kubeadm` depuis la ConfigMap `kubeadm-config`. Il
-# n'existe donc aucune API pour le modifier — il faut une session sur chaque node.
+# --- API-server OIDC authentication (dex/) -----------------------------------
+# The kube-apiserver is a STATIC POD: its manifest is a file on each control plane's disk,
+# regenerated by `kubeadm` from the `kubeadm-config` ConfigMap. There is therefore no API to
+# change it — you need a session on every node.
 APISERVER_OIDC_PATCH="apiserver-oidc.kubeadm.yaml"
-APISERVER_OIDC_MECANISME="ConfigMap kubeadm-config + kubeadm init phase, sur chaque control plane"
-# $1 = chemin du fragment à fusionner. Écrit sur stdout les commandes à lancer : ce dépôt
-# n'exécute PAS ces commandes, elles redémarrent le serveur d'API (cf. dex/README.md).
-apiserver_oidc_commandes() {
+APISERVER_OIDC_MECHANISM="kubeadm-config ConfigMap + kubeadm init phase, on each control plane"
+# $1 = path of the fragment to merge. Writes the commands to run on stdout: this repository
+# does NOT run them, they restart the API server (see dex/README.md).
+apiserver_oidc_commands() {
   cat <<EOF
-    # 1. fusionner le fragment dans la source de vérité (éditeur interactif)
-    kubectl -n kube-system edit configmap kubeadm-config     # coller le bloc apiServer de ${1}
+    # 1. merge the fragment into the source of truth (interactive editor)
+    kubectl -n kube-system edit configmap kubeadm-config     # paste the apiServer block of ${1}
 
-    # 2. sur CHAQUE control plane, régénérer le manifeste statique depuis cette ConfigMap
+    # 2. on EACH control plane, regenerate the static manifest from that ConfigMap
     vagrant ssh k8s-cp1 -c '
       kubectl -n kube-system get cm kubeadm-config -o jsonpath="{.data.ClusterConfiguration}" \\
         | sudo tee /tmp/kubeadm.yaml >/dev/null
       sudo kubeadm init phase control-plane apiserver --config /tmp/kubeadm.yaml'
-    kubectl get --raw=/readyz && echo   # vérifier AVANT de passer au control plane suivant
+    kubectl get --raw=/readyz && echo   # check BEFORE moving on to the next control plane
 EOF
 }
 
 # --- Vault / VSO -------------------------------------------------------------
-# Montage KV-v2 de démonstration, propre au lab (les policies HCL y font référence).
+# Demo KV-v2 mount, specific to the lab (the HCL policies refer to it).
 VAULT_KV_MOUNT="kubeadm-lab"
 
-# --- Divers ------------------------------------------------------------------
-# metrics-server : le certificat « serving » du kubelet est auto-signé par le kubelet
-# lui-même sur les deux distributions → `--kubelet-insecure-tls` dans les deux cas.
+# --- Misc --------------------------------------------------------------------
+# metrics-server: the kubelet's "serving" certificate is self-signed by the kubelet itself on
+# both distributions → `--kubelet-insecure-tls` in both cases.
 METRICS_KUBELET_INSECURE=true

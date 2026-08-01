@@ -23,7 +23,7 @@ POLICY_REPORTER_VERSION="${POLICY_REPORTER_VERSION:-3.9.1}"
 
 # --- Pré-requis -------------------------------------------------------------
 need kubectl helm
-exiger_apiserver
+require_apiserver
 
 # ============================================================================
 log "[1/4] Kyverno ${KYVERNO_VERSION}"
@@ -48,7 +48,7 @@ helm upgrade --install policy-reporter policy-reporter/policy-reporter -n kyvern
 kubectl -n kyverno rollout status deploy/policy-reporter-ui --timeout=180s
 
 log "[4/4] HTTPRoute (kyverno.${LAB_DOMAIN})"
-rendre "${HERE}/httproute.yaml" | kubectl apply -f -
+render "${HERE}/httproute.yaml" | kubectl apply -f -
 
 # ============================================================================
 log "Kyverno installé."

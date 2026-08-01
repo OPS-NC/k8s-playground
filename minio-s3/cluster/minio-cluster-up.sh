@@ -13,8 +13,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 k8s_init "$@"
 
 need kubectl
-exiger_apiserver
-exiger_sc local-path
+require_apiserver
+require_sc local-path
 # 4 pods = 4 nœuds distincts (anti-affinité) : il faut au moins 4 workers schedulables.
 WK=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' --no-headers 2>/dev/null | grep -c ' Ready ' || true)
 [ "${WK:-0}" -ge 4 ] || echo "  /!\\ Seulement ${WK} worker(s) Ready — il en faut 4 (anti-affinité 1 pod/node)."
@@ -35,7 +35,7 @@ fi
 
 log "MinIO distribué (StatefulSet 4 nœuds) + Services + HTTPRoutes"
 # Le manifeste porte les hostnames des HTTPRoutes + MINIO_BROWSER_REDIRECT_URL.
-rendre "${HERE}/minio-cluster.yaml" | kubectl apply -f -
+render "${HERE}/minio-cluster.yaml" | kubectl apply -f -
 kubectl -n minio-cluster rollout status statefulset/minio --timeout=300s
 
 log "MinIO cluster installé."

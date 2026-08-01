@@ -22,11 +22,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 k8s_init "$@"
 
 need kubectl
-exiger_apiserver
+require_apiserver
 
 # ============================================================================
 log "local-path-provisioner (chemin ${LOCAL_PATH_DIR})"
-resume_distro
+distro_summary
 sed "s#/opt/local-path-provisioner#${LOCAL_PATH_DIR}#g" "${HERE}/local-path-storage.yaml" \
   | kubectl apply -f -
 kubectl -n local-path-storage rollout status deploy/local-path-provisioner --timeout=120s

@@ -63,7 +63,7 @@ C'est **le composant le plus dépendant de la distribution** de tout le dépôt.
 | `securityContext.capabilities.*` | listes explicites (**exigées**) | non posées | Talos refuse le `privileged` implicite du chart. |
 | `devices` | `enp0s8` | `eth1`/`enp0s8`, **détecté** dans `_out/cluster.env` | Sans épinglage, Cilium prend la carte NAT `10.0.2.15` — identique sur toutes les VM ⇒ trafic cross-node et DNS cassés. |
 
-Source : `lib/profiles/<distro>.sh` (`CILIUM_IPAM_MODE`, `cilium_sets_specifiques()`,
+Source : `lib/profiles/<distro>.sh` (`CILIUM_IPAM_MODE`, `cilium_specific_sets()`,
 `KUBE_PROXY_REPLACEABLE`, `DEFAULT_HOSTONLY_IF`).
 
 ## 🎓 Pas à pas guidé (formation)

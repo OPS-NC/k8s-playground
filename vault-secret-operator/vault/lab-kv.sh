@@ -17,7 +17,7 @@ k8s_init "$@"
 
 # Nom du moteur KV-v2 du lab : `talos-lab/` ou `kubeadm-lab/` selon le profil (les deux labs
 # peuvent ainsi coexister dans un même Vault). Les fichiers versionnés portent le nom NEUTRE
-# `lab-kv` — substitué ici, exactement comme le domaine (cf. lib/common.sh, `rendre`).
+# `lab-kv` — substitué ici, exactement comme le domaine (cf. lib/common.sh, `render`).
 MOUNT="${VAULT_KV_MOUNT}"
 # Le CLI `vault` parle à l'API de Vault : sans lui, rien de ce qui suit ne marche.
 need vault

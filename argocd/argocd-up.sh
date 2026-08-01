@@ -22,7 +22,7 @@ k8s_init "$@"
 ARGOCD_VERSION="${ARGOCD_VERSION:-10.2.2}"
 
 need kubectl helm
-exiger_apiserver
+require_apiserver
 
 # ============================================================================
 log "Argo CD ${ARGOCD_VERSION} + HTTPRoute (argo.${LAB_DOMAIN})"
@@ -30,11 +30,11 @@ helm repo add argo https://argoproj.github.io/argo-helm >/dev/null 2>&1 || true
 helm repo update argo >/dev/null
 # values.yaml contient le domaine (global.domain + configs.cm.url) : rendu dans un temporaire.
 VALUES="$(mktemp)"; trap 'rm -f "$VALUES"' EXIT
-rendre "${HERE}"/values.yaml > "$VALUES"
+render "${HERE}"/values.yaml > "$VALUES"
 helm upgrade --install argocd argo/argo-cd -n argocd --create-namespace \
   --version "${ARGOCD_VERSION}" --values "$VALUES"
 kubectl -n argocd rollout status deploy/argocd-server --timeout=300s
-rendre "${HERE}"/httproute.yaml | kubectl apply -f -
+render "${HERE}"/httproute.yaml | kubectl apply -f -
 
 # ============================================================================
 log "Argo CD installé."

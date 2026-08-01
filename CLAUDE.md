@@ -34,7 +34,7 @@ Corollaires, à respecter sans exception :
    distribution. Si un nouveau besoin de divergence apparaît : ajouter la variable **dans les
    deux profils** (avec un commentaire expliquant pourquoi elle vaut ça ici), puis la lire.
 2. **Le profil documente aussi le cas « inutile ».** Sur kubeadm, la plupart des contournements
-   Talos tombent : on ne les supprime pas, on écrit `LONGHORN_PREP_REQUISE=false` avec le
+   Talos tombent : on ne les supprime pas, on écrit `LONGHORN_PREP_REQUIRED=false` avec le
    commentaire qui dit *pourquoi* ça tombe. La comparaison entre les deux labs est un objectif
    pédagogique du dépôt, pas un effet de bord.
 3. **Namespaces privilégiés étiquetés dans les deux cas.** Un pod privilégié (hostPath,
@@ -73,16 +73,16 @@ Makefile                    docs, docs-check, validate — tout ce qui tourne sa
 | `k8s_init "$@"` | **Point d'entrée obligatoire.** Résout la distribution, charge son profil, localise le lab, calcule `LAB_DOMAIN` / `WILDCARD_TLS`, positionne `KUBECONFIG`. Les arguments non consommés partent dans `K8S_ARGS`. |
 | `log` / `warn` / `fail` | Affichage normalisé (`==>`, `/!\`, `ERREUR :` + `exit 1`). |
 | `need bin...` | Échoue si un binaire manque du `PATH`. |
-| `exiger_apiserver` | Échoue si l'apiserver ne répond pas, avec le rappel du `cluster-up.sh` de la bonne distro. |
-| `exiger_sc <sc>` | Échoue si la StorageClass est absente, avec la commande d'installation. |
-| `lire_param NOM DEFAUT` | environnement > `_out/cluster.env` > `lab.env` > défaut. |
+| `require_apiserver` | Échoue si l'apiserver ne répond pas, avec le rappel du `cluster-up.sh` de la bonne distro. |
+| `require_sc <sc>` | Échoue si la StorageClass est absente, avec la commande d'installation. |
+| `read_param NOM DEFAUT` | environnement > `_out/cluster.env` > `lab.env` > défaut. |
 | `rendre FICHIER...` | Écrit le manifeste sur stdout avec les marqueurs neutres substitués. |
-| `resume_distro` | Ligne de rappel du profil actif, affichée en tête d'installation. |
+| `distro_summary` | Ligne de rappel du profil actif, affichée en tête d'installation. |
 | `REPO_ROOT`, `LAB_DIR`, `K8S_DISTRO`, `LAB_DOMAIN`, `WILDCARD_TLS` | Variables exportées par `k8s_init`. |
 
 ### Le dépôt est public : trois marqueurs neutres, substitués à la volée
 
-Aucun manifeste versionné ne porte de valeur réelle. `rendre` remplace, **sans jamais réécrire
+Aucun manifeste versionné ne porte de valeur réelle. `render` remplace, **sans jamais réécrire
 un fichier versionné** (`git status` reste propre) :
 
 | Marqueur versionné | Remplacé par |
@@ -91,7 +91,7 @@ un fichier versionné** (`git status` reste propre) :
 | `lab-example-io` | `$LAB_DOMAIN_DASH` — nom du Secret TLS wildcard |
 | `lab-kv` | `$VAULT_KV_MOUNT` (`talos-lab` / `kubeadm-lab`) |
 
-Toute valeur qui dépend du lab **doit** passer par un de ces marqueurs ou par `lire_param`.
+Toute valeur qui dépend du lab **doit** passer par un de ces marqueurs ou par `read_param`.
 Ne jamais committer un domaine réel, un token, un mot de passe : la CI `docs` refuse de publier
 si elle détecte un motif de secret dans la page générée.
 
@@ -134,7 +134,7 @@ faire sa propre redirection `http→https`, sinon boucle de redirection (cf.
    k8s_init "$@"
    FOO_VERSION="${FOO_VERSION:-x.y.z}"   # version ÉPINGLÉE, surchargeable
    need kubectl helm
-   exiger_apiserver
+   require_apiserver
    ```
 4. Versions **épinglées** dans le script via une variable d'environnement surchargeable, et
    reportées dans le tableau « Versions épinglées » des deux README racine.

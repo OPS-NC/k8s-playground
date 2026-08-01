@@ -102,7 +102,7 @@ kubectl apply -f longhorn/longhorn-r1-storageclass.yaml
 ## 🧬 Talos vs kubeadm
 
 **The iSCSI prerequisite does not live in the same place on both distributions** — that is THE
-structural difference of this component (`LONGHORN_PREP_REQUISE` in the profiles).
+structural difference of this component (`LONGHORN_PREP_REQUIRED` in the profiles).
 
 | | Talos | kubeadm |
 |---|---|---|

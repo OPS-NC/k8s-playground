@@ -21,7 +21,7 @@ need vault
 MODE="${MODE:-incluster}"
 # VIP de l'apiserver du lab : keepalived sur kubeadm, VIP Talos (talos/patch-cp.yaml) sur
 # Talos — la même adresse dans les deux labs, lue dans lab.env si elle a été changée.
-KUBE_HOST="${KUBE_HOST:-https://$(lire_param VIP "$DEFAULT_VIP"):6443}"
+KUBE_HOST="${KUBE_HOST:-https://$(read_param VIP "$DEFAULT_VIP"):6443}"
 
 vault auth enable kubernetes 2>/dev/null || echo "  (auth/kubernetes déjà activé)"
 
