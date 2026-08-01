@@ -344,8 +344,8 @@ echo 'LAB_DOMAIN=k8s.mon-domaine.tld' >> lab.env    # dans Vagrant-Talos/ ou Vag
 ```
 
 > ⚠️ Un domaine resté à `<distro>.lab.example.io` alors que `lab.env` dit autre chose est le
-> **premier** symptôme d'un `lab.env` jamais trouvé : vérifie `LAB_DIR` avant de soupçonner la
-> substitution.
+> **premier** symptôme d'un `lab.env` jamais trouvé : vérifie quel lab a été résolu (la ligne
+> de résumé) avant de soupçonner la substitution.
 
 > ⚠️ **Les manifestes appliqués à la main** (sans passer par un `*-up.sh`) ne bénéficient pas
 > de la substitution : `wordpress-example/wordpress-mariadb.yaml`,
@@ -476,11 +476,17 @@ telle quelle.
 
 ## ⚠️ Pièges
 
-- **`LAB_DIR` oublié en disposition sous-module.** Le plus coûteux, parce qu'il ne coûte rien
-  de visible : pas d'erreur, pas de fichier manquant, juste une installation menée avec les
-  défauts du profil et sans kubeconfig. Depuis la racine du lab, toujours
-  `export KUBECONFIG="$PWD/kubeconfig" LAB_DIR="$PWD"` avant `./_k8s/…`, et lire le marqueur
-  `lab.env …` sur la ligne de résumé.
+- **Lancer depuis la racine de *ce* dépôt sans argument de distribution.** En dépôts voisins,
+  aucun lab n'est localisé avant le chargement du profil : il ne reste que le sondage du
+  contexte `kubectl` ambiant — qui peut viser un tout autre cluster. Passe `talos`/`kubeadm`,
+  ou exporte `LAB_DIR`. Depuis la racine d'un **lab**, la question ne se pose pas.
+- **Le dossier du lab renommé, en dépôts voisins.** La règle 3 matche `LAB_REPO_NAME` au pied
+  de la lettre : un `Vagrant-KubeADM-v2/` à côté n'est pas trouvé, et la résolution retombe sur
+  ce dépôt — silencieusement. `LAB_DIR` est le correctif. En sous-module, le nom n'a aucune
+  importance.
+- **Lire la ligne de résumé, à chaque fois.** Une ligne par script, affichée avant de toucher à
+  quoi que ce soit : profil, domaine, et si un `lab.env` a été trouvé. C'est le moyen le moins
+  cher d'attraper une résolution partie ailleurs que prévu.
 - **Un `git pull` dans un lab ne déplace pas `_k8s/`.** Le sous-module reste épinglé sur son
   commit précédent : `git submodule update --init --recursive` après chaque pull.
 - **Deux StorageClass par défaut.** `longhorn/values.yaml` pose
