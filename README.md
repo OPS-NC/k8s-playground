@@ -69,14 +69,15 @@ cd ../Vagrant-Talos    && ./talos/cluster-up.sh        # or
 cd ../Vagrant-KubeADM  && ./kubeadm/cluster-up.sh
 
 cd ../k8s-playground                 # this repo, sibling of the lab
-./install.sh talos platform          # here the distribution IS worth passing (see below)
+./install.sh talos platform          # one lab next door ⇒ the argument is optional here too
 ```
 
-Here the lab repository sits one level up, **next to** this one — not above it — so the
-parent-`Vagrantfile` rule does not fire and the lab is only found through `LAB_REPO_NAME`
-(`../Vagrant-Talos`, `../Vagrant-KubeADM`), which the **distribution profile** supplies. The
-distribution therefore has to come from somewhere else than the lab: pass it as the argument.
-That is the **only** difference between the two layouts.
+Here the lab repository sits **next to** this one, not above it, so the parent-`Vagrantfile`
+rule does not fire: the lab directory is found through `LAB_REPO_NAME` (`../Vagrant-Talos`,
+`../Vagrant-KubeADM`), which the **distribution profile** supplies, and the distribution itself
+is read off those same two candidate directories, tested by name. It follows that with **both**
+labs cloned side by side the choice is ambiguous — the scripts then refuse to guess and you
+pass `talos`/`kubeadm`. That is the **only** difference between the two layouts.
 </details>
 
 Every component is still **runnable on its own**, bare in the submodule layout:
@@ -102,7 +103,7 @@ side** — what existed before — still works, and stays documented here as the
 | On disk | `Vagrant-KubeADM/_k8s/` **is** this repo | `Vagrant-KubeADM/` and `k8s-playground/` in the same parent directory |
 | Where you run the scripts | from the **lab** root: `./_k8s/install.sh …` | from **this** repo's root: `./install.sh <distro> …` |
 | `LAB_DIR` | **not needed**: the parent carries a `Vagrantfile` ⇒ rule 2 below | **not needed** either: rule 3 below finds `../<lab repo>` on its own |
-| Distribution argument | **not needed**: read off the lab's structure | **worth passing**: no lab is located before the profile is loaded, so only the last-resort signal is left |
+| Distribution argument | **not needed**: read off the lab's structure | **not needed** with a single lab next door (`../Vagrant-Talos` / `../Vagrant-KubeADM` are probed directly); **needed** if both are there, or if the directory was renamed |
 | Version of the application layer | **pinned** by the lab to one commit ⇒ the lab is reproducible | whatever happens to be checked out next door |
 | Getting it | `git clone --recurse-submodules …`, or `git submodule update --init --recursive` | one `git clone` per repository |
 | Updating it | `git submodule update --remote _k8s`, then commit the moved pointer | `git pull` here |
@@ -209,16 +210,24 @@ In priority order:
 | 4 | `DISTRO=` in the lab's `lab.env` | `DISTRO=kubeadm` |
 | 5 | the lab's **structure** | `talos/cluster-up.sh` → `talos` · `kubeadm/cluster-up.sh` → `kubeadm` |
 | 6 | the lab's **bootstrap artefacts** | `_out/talosconfig` → `talos` · `_out/cluster.env` → `kubeadm` |
-| 7 | **probing** the cluster | first node's `osImage`: `Talos …` → `talos`, anything else → `kubeadm` |
+| 7 | the **neighbouring** lab repository | `../Vagrant-Talos/talos/cluster-up.sh` → `talos` · `../Vagrant-KubeADM/kubeadm/cluster-up.sh` → `kubeadm` |
+| 8 | **probing** the cluster | first node's `osImage`: `Talos …` → `talos`, anything else → `kubeadm` |
 
-Sources 5 to 7 are `_detecter_distro()`, three families of signals ordered by how early they
+Sources 5 to 8 are `_detecter_distro()`, four families of signals ordered by how early they
 become available:
 
 | Signal | Available from | Cost |
 |---|---|---|
 | **structure** — the bootstrap script of the distribution the lab implements | the `git clone`, **before any `vagrant up`** | none: a file test |
 | **artefacts** — what the bootstrap wrote into `_out/` | after `cluster-up.sh` | none: a file test. Covers a lab whose directories were renamed |
+| **neighbours** — the same test run on `../Vagrant-Talos` and `../Vagrant-KubeADM` | the lab's `git clone` | none, but **refuses to decide when both are there** (see below) |
 | **probe** — `kubectl get nodes -o jsonpath=…osImage` | a cluster that is up **and** a `KUBECONFIG` that already points at it | last resort only |
+
+> ℹ️ **Source 7 hard-codes the two names, on purpose.** `LAB_REPO_NAME` would have been the
+> natural way to name the neighbour, but the *profile* sets it — and the profile is what we are
+> trying to choose. So the two candidates are tested directly. If **both** are present next
+> door, nothing is decided and the scripts ask: guessing there would mean a one-in-two chance
+> of deploying onto the wrong cluster. Pass `talos`/`kubeadm` in that case.
 
 > ℹ️ **Why the probe is last.** It needs a `KUBECONFIG` that is already correct — but
 > `KUBECONFIG` is derived from the lab directory, which comes from the *profile*, which is
@@ -233,10 +242,11 @@ that gets created while no pod ever starts, for instance.
 > ℹ️ **Sources 4 to 6 need the lab to be located first — which is where layout matters.** In
 > **submodule** layout the parent-`Vagrantfile` rule fires before any profile is loaded, so all
 > three work bare: that is what makes `./_k8s/platform-up.sh` self-sufficient. In **sibling**
-> layout the lab is only reachable through `LAB_REPO_NAME`, which the profile supplies — and
-> the profile is what we are trying to choose. Resolution therefore falls through to the probe
-> (source 7). From this repo's root: pass the distribution, or export `LAB_DIR`. An explicit
-> argument short-circuits the whole question and stays the surest way to know what you ran.
+> layout no lab is located at that point (`LAB_REPO_NAME` comes from the profile), so those
+> three stay silent and source 7 takes over — which is why `./install.sh platform` works bare
+> from here too, as long as a **single** lab sits next door. Two labs side by side, or a
+> renamed directory: pass the distribution, or export `LAB_DIR`. An explicit argument
+> short-circuits the whole question and stays the surest way to know what you ran.
 
 ## 🧬 What actually differs between the two labs
 
@@ -383,8 +393,9 @@ variable.
 
 `./install.sh list` prints the same list, always up to date.
 
-> ℹ️ The commands below spell out `<distro>` because they are written from **this** repo's
-> root, where it is worth passing. From a lab root, drop it: `./_k8s/install.sh longhorn`.
+> ℹ️ The commands below spell out `<distro>` to stay unambiguous, but it is optional in both
+> layouts: `./_k8s/install.sh longhorn` from a lab root, `./install.sh longhorn` from here with
+> a single lab next door.
 
 ### 🌐 Networking & TLS
 
@@ -464,13 +475,14 @@ as-is.
 
 ## ⚠️ Pitfalls
 
-- **Running from *this* repo's root with no distribution argument.** In sibling layout no lab
-  is located before the profile is loaded, so the only signal left is the probe on whatever
-  `kubectl` context happens to be ambient — which may be another cluster entirely. Pass
-  `talos`/`kubeadm`, or export `LAB_DIR`. From a **lab** root the question does not arise.
-- **The lab directory renamed, in sibling layout.** Rule 3 matches on `LAB_REPO_NAME`
-  literally: a `Vagrant-KubeADM-v2/` next door is not found, and resolution falls back to this
-  repo — silently. `LAB_DIR` is the fix. In submodule layout the name is irrelevant.
+- **Both labs cloned side by side, and no distribution argument.** The neighbour signal then
+  points two ways at once: the scripts stop and ask rather than pick. Say which one —
+  `./install.sh talos …` — or run from the lab you mean, in submodule layout.
+- **The lab directory renamed, in sibling layout.** Both the lab lookup (`LAB_REPO_NAME`) and
+  the neighbour detection match those two names **literally**: a `Vagrant-KubeADM-v2/` next
+  door is found by neither, and resolution falls back to this repo — silently, with the probe
+  on whatever `kubectl` context happens to be ambient. `LAB_DIR` is the fix. In submodule
+  layout the directory name is irrelevant.
 - **Read the summary line, every time.** One line per script, printed before anything is
   touched: profile, domain, and whether a `lab.env` was found. It is the cheapest way to catch
   a resolution that went somewhere unexpected.
