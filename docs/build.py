@@ -56,6 +56,11 @@ RACINE = Path(__file__).resolve().parent.parent
 # Dossiers jamais explorés (dépendances, artefacts, sortie du générateur).
 EXCLUS = {".git", ".vagrant", "node_modules", "docs", "_out", "lib"}
 
+# Fichiers jamais publiés, où qu'ils soient. `CLAUDE.md` documente le dépôt pour un
+# assistant (conventions internes, checklists) : c'est une note de travail, pas une page
+# de la documentation du lab. Sans cette exclusion il atterrirait dans « Autres ».
+FICHIERS_EXCLUS = {"CLAUDE.md"}
+
 # Pages publiées MÊME si git les ignore. Volontairement VIDE : la page est publiée
 # sur GitHub Pages, où le build ne dispose que des fichiers versionnés. Y forcer un
 # dossier local produirait une page locale différente de la page publiée, et
@@ -240,6 +245,7 @@ def decouvrir() -> list[dict]:
         p.relative_to(RACINE).as_posix()
         for p in RACINE.rglob("*.md")
         if not (EXCLUS & set(p.relative_to(RACINE).parts))
+        and p.name not in FICHIERS_EXCLUS
     )
     exclus = ignores(trouves) - FORCER
     restants = [c for c in trouves if c not in exclus]
