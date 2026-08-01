@@ -186,8 +186,8 @@ spec:
   accessModes: [ReadWriteOnce]
   resources: { requests: { storage: 128Mi } }
 EOF
-kubectl -n default run lp-test --image=busybox:1.36 --restart=Never \
-  --overrides='{"spec":{"volumes":[{"name":"d","persistentVolumeClaim":{"claimName":"lp-test"}}],"containers":[{"name":"c","image":"busybox:1.36","command":["sh","-c","echo ok>/data/x && cat /data/x && sleep 3"],"volumeMounts":[{"name":"d","mountPath":"/data"}]}]}}'
+kubectl -n default run lp-test --image=busybox:1.38 --restart=Never \
+  --overrides='{"spec":{"volumes":[{"name":"d","persistentVolumeClaim":{"claimName":"lp-test"}}],"containers":[{"name":"c","image":"busybox:1.38","command":["sh","-c","echo ok>/data/x && cat /data/x && sleep 3"],"volumeMounts":[{"name":"d","mountPath":"/data"}]}]}}'
 kubectl -n default get pvc lp-test            # STATUS Bound
 kubectl -n default delete pod lp-test; kubectl -n default delete pvc lp-test
 ```

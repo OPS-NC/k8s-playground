@@ -17,7 +17,7 @@ spec:
       serviceAccountName: vso-app          # (facultatif ici : c'est VSO qui logge, pas le pod)
       containers:
         - name: app
-          image: busybox:1.36
+          image: busybox:1.38
           command: ["sh", "-c", "env | grep -E 'DB_|APP_' ; sleep 3600"]
           # KV statique injecté en variables d'env (le Secret "static-kv").
           envFrom:
