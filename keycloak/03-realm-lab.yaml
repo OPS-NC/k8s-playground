@@ -53,6 +53,45 @@ spec:
     # Keycloak DOES NOT EMIT group membership by default: without this scope the token carries
     # no `groups` claim and any RBAC based on it is silent — with no error, just an
     # unexplainable "forbidden" on the apiserver side.
+    #
+    # ⚠️⚠️ BROKEN AS WRITTEN — the realm ends up with NO `profile` and NO `email` scope.
+    #
+    #    `clientScopes` obeys the SAME "the list replaces the realm's own" rule that the
+    #    comment below states for `defaultDefaultClientScopes`. Declaring `groups` here
+    #    therefore SUPPRESSES every built-in client scope: Keycloak only calls its
+    #    `setupClientScopes()` when the imported representation carries no `clientScopes` at
+    #    all. Measured on the Talos lab, Keycloak 26.7.0:
+    #        realm lab    : ['groups', 'offline_access']
+    #        realm master : ['acr','address','basic','email','microprofile-jwt','offline_access',
+    #                        'organization','phone','profile','roles','web-origins', …]
+    #    So the six names listed in `defaultDefaultClientScopes` below point at scopes that DO
+    #    NOT EXIST, and the whole block is silently a no-op.
+    #
+    #    Consequence, and it is the one that actually bites: ../dex/values.yaml requests
+    #    `scopes: [openid, profile, email, groups]`, and Keycloak refuses the authorization
+    #    request outright —
+    #        error=invalid_scope
+    #        Invalid scopes: openid openid profile email groups
+    #    The browser never even reaches the login form. Note the message lists EVERY requested
+    #    scope, not the offending ones, which sends you looking at `groups` (and at the
+    #    duplicated `openid`, which is harmless — Dex prepends it to its own list) instead of at
+    #    the two that are genuinely missing.
+    #
+    #    DO NOT "fix" this by enumerating the built-ins by name here: a `clientScopes` entry
+    #    without its `protocolMappers` creates an EMPTY scope, so the request would be accepted
+    #    and the token would carry no claim — trading a loud failure for a silent one.
+    #    The two real options:
+    #      a. drop `clientScopes` from this representation entirely (Keycloak then creates its
+    #         own built-ins, correct for its version) and create the `groups` scope after the
+    #         import, from `keycloak-up.sh`, through the admin API;
+    #      b. keep it declarative and repeat the built-ins here IN FULL, mappers included —
+    #         self-contained, but it has to be re-checked on every Keycloak upgrade.
+    #    (a) is the better trade: the built-ins stay Keycloak's business.
+    #
+    #    NOT FIXED HERE: the live lab was repaired by copying the six built-in scopes from the
+    #    `master` realm through the admin API, which unblocked the login. Neither option above
+    #    can be validated without a fresh realm import, and re-importing would destroy the demo
+    #    user and the hand-made `dex` client the current test depends on.
     clientScopes:
       - name: groups
         protocol: openid-connect
