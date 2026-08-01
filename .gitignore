@@ -8,6 +8,11 @@ _out/
 kubeconfig
 talosconfig
 
+# --- Documentation générée --------------------------------------------------
+# `docs/index.html` est REGÉNÉRÉ (make docs) et publié par le workflow `docs` : le
+# versionner ajouterait ~1,3 Mo de diff à chaque retouche de README.
+docs/index.html
+
 # --- Sorties temporaires ---------------------------------------------------
 *.tmp
 *.rendered.yaml

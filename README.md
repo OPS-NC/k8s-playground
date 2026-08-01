@@ -14,6 +14,10 @@
 > ./install.sh kubeadm platform        # on the kubeadm/Debian 13 cluster
 > ```
 
+📖 **Browsable documentation**: <https://ops-nc.github.io/k8s-playground/> — a single
+self-contained page, bilingual (EN/FR) with a dark/light theme, rebuilt from these very
+`README.md` / `LISEZ-MOI.md` files on every push to `main` (`make docs` to build it locally).
+
 Both labs remain responsible for **bootstrapping the cluster** (VMs, OS, `kubeadm init` /
 `talosctl bootstrap`). This repository only covers what comes **after**, with `kubectl` and
 `helm` from the host — **including the CNI**, because neither bootstrap leaves a usable pod
@@ -105,6 +109,8 @@ lib/
   <component>-up.sh         the all-in-one install
   values.yaml / *.yaml      manifests and values (NEUTRAL values, substituted on the fly)
   README.md / LISEZ-MOI.md  EN/FR docs + guided walkthrough
+docs/build.py               builds the single-page site from every README (make docs)
+Makefile                    docs, docs-check, validate — everything that runs without a cluster
 ```
 
 The scripts store **nothing**: `lab.env` and `_out/` (kubeconfig, talosconfig, generated
@@ -138,9 +144,9 @@ That is exactly the order of `platform-up.sh` (`[1/4]` → `[4/4]`). Both TLS mo
 **same** Secret (`wildcard-<LAB_DOMAIN with dashes>-tls`), so no add-on ever has to know which
 one you picked.
 
-## 🌐 The domain, and the three "neutral" values
+## 🌐 `LAB_DOMAIN` — the UI domain
 
-The repository is **public**: no manifest carries a real value. Three neutral markers are
+Alongside it, two more **neutral** markers. The repository is **public**: no manifest carries a real value. Three neutral markers are
 substituted **on the fly** (the `rendre` helper in `lib/common.sh`), never rewriting a
 versioned file — `git status` stays clean:
 
@@ -250,6 +256,28 @@ variable.
 |---|---|---|
 | [`argocd/`](argocd/README.md) | Argo CD (GitOps), UI at `argo.<LAB_DOMAIN>` | `./install.sh <distro> argocd` |
 | [`wordpress-example/`](wordpress-example/README.md) | WordPress + MariaDB on Longhorn, exposed through Envoy | `kubectl apply` (see README) |
+
+## 🌍 Remote access (Tailscale + Cloudflare)
+
+The `.200` VIP is a **host-only** IP announced over ARP: reachable from the host, not routable
+as-is.
+
+1. **L3** — the host advertises the route:
+   ```bash
+   sudo tailscale up --advertise-routes=192.168.56.200/32
+   ```
+   Then approve it in the Tailscale console.
+   > ⚠️ Stay on the `/32` (or fence it with an ACL): a `/24` would also expose the Kubernetes
+   > API (`:6443`) and SSH on every node.
+
+2. **Name + TLS** — a public Cloudflare wildcard `*.<LAB_DOMAIN> → 192.168.56.200`, in
+   **DNS-only (grey cloud)**: the Cloudflare proxy cannot reach a private `192.168.56.x` IP.
+   TLS is therefore terminated by **Envoy**, not by Cloudflare → the Gateway must carry a
+   **publicly trusted** certificate (Let's Encrypt, see [`cert-manager/`](cert-manager/README.md)).
+   A *Cloudflare Origin CA* certificate would be rejected by browsers.
+
+> 💡 With the default `SELF_SIGNED=true`, none of this is needed: an `/etc/hosts` line pointing
+> at `192.168.56.200` is enough, and the domain never has to resolve publicly.
 
 ## ⚠️ Pitfalls
 

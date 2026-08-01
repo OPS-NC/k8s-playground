@@ -14,6 +14,10 @@
 > ./install.sh kubeadm platform        # sur le cluster kubeadm/Debian 13
 > ```
 
+📖 **Documentation navigable** : <https://ops-nc.github.io/k8s-playground/> — une page
+unique et autonome, bilingue (EN/FR) avec thème sombre/clair, régénérée depuis ces mêmes
+`README.md` / `LISEZ-MOI.md` à chaque push sur `main` (`make docs` pour la construire en local).
+
 Les deux labs restent responsables du **bootstrap du cluster** (VM, OS, `kubeadm init` /
 `talosctl bootstrap`). Ce dépôt ne s'occupe que de ce qui vient **après**, avec `kubectl` et
 `helm` depuis l'hôte — **y compris le CNI**, car aucun des deux bootstraps ne laisse un réseau
@@ -107,6 +111,8 @@ lib/
   <composant>-up.sh         l'installation « tout-en-un »
   values.yaml / *.yaml      manifestes et values (valeurs NEUTRES, substituées à la volée)
   README.md / LISEZ-MOI.md  doc EN/FR + pas-à-pas guidé
+docs/build.py               construit la page unique depuis tous les README (make docs)
+Makefile                    docs, docs-check, validate — tout ce qui tourne sans cluster
 ```
 
 Les scripts ne stockent **rien** : `lab.env` et `_out/` (kubeconfig, talosconfig, secrets
@@ -140,9 +146,9 @@ C'est exactement l'ordre de `platform-up.sh` (`[1/4]` → `[4/4]`). Les deux mod
 remplissent le **même** Secret (`wildcard-<LAB_DOMAIN en tirets>-tls`) : aucun addon n'a jamais
 à savoir lequel a été choisi.
 
-## 🌐 Domaine, et les trois valeurs « neutres »
+## 🌐 `LAB_DOMAIN` — le domaine des UI
 
-Le dépôt est **public** : aucun manifeste ne porte de vraie valeur. Trois marqueurs neutres
+À ses côtés, deux autres marqueurs **neutres**. Le dépôt est **public** : aucun manifeste ne porte de vraie valeur. Trois marqueurs neutres
 sont substitués **à la volée** (fonction `rendre` de `lib/common.sh`), sans jamais réécrire un
 fichier versionné — `git status` reste propre :
 
@@ -254,6 +260,30 @@ d'environnement.
 |---|---|---|
 | [`argocd/`](argocd/LISEZ-MOI.md) | Argo CD (GitOps), UI sous `argo.<LAB_DOMAIN>` | `./install.sh <distro> argocd` |
 | [`wordpress-example/`](wordpress-example/LISEZ-MOI.md) | WordPress + MariaDB sur Longhorn, exposés par Envoy | `kubectl apply` (cf. LISEZ-MOI) |
+
+## 🌍 Accès distant (Tailscale + Cloudflare)
+
+La VIP `.200` est une IP **host-only** annoncée en ARP : joignable depuis l'hôte, pas routable
+telle quelle.
+
+1. **L3** — l'hôte annonce la route :
+   ```bash
+   sudo tailscale up --advertise-routes=192.168.56.200/32
+   ```
+   Puis l'approuver dans la console Tailscale.
+   > ⚠️ Rester sur le `/32` (ou l'encadrer par une ACL) : un `/24` exposerait aussi l'API
+   > Kubernetes (`:6443`) et le SSH de chaque node.
+
+2. **Nom + TLS** — wildcard Cloudflare public `*.<LAB_DOMAIN> → 192.168.56.200`, en
+   **DNS-only (nuage GRIS)** : le proxy Cloudflare ne peut pas joindre une IP privée
+   `192.168.56.x`. Le TLS est donc terminé par **Envoy**, pas par Cloudflare → la Gateway doit
+   porter un certificat **publiquement trusté** (Let's Encrypt, cf.
+   [`cert-manager/`](cert-manager/LISEZ-MOI.md)). Un certificat *Cloudflare Origin CA* serait
+   refusé par les navigateurs.
+
+> 💡 Avec le défaut `SELF_SIGNED=true`, rien de tout ça n'est nécessaire : une ligne
+> `/etc/hosts` pointant sur `192.168.56.200` suffit, et le domaine n'a jamais besoin de
+> résoudre publiquement.
 
 ## ⚠️ Pièges
 

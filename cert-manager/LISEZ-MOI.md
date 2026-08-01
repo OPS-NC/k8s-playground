@@ -274,7 +274,7 @@ curl -sS -o /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' \
   d'identifiants** est atteint. Rien à corriger, rien à retenter : le message porte l'heure de
   `retry after` et la fenêtre de 168 h est glissante. À noter que **chaque `vagrant destroy` en
   brûle un**, puisque le wildcard ne vit que dans etcd. Repasse en `LAB_ACME_ISSUER=staging` en
-  attendant, ou sauvegarde le Secret avant de détruire (cf. [`../../LISEZ-MOI.md`](../../LISEZ-MOI.md) §5).
+  attendant, ou sauvegarde le Secret avant de détruire (cf. [`../LISEZ-MOI.md`](../LISEZ-MOI.md)).
 
 ## ⚠️ Pièges
 

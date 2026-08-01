@@ -274,7 +274,7 @@ curl -sS -o /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' \
   reached. Nothing to fix, nothing to retry: the message carries the `retry after` timestamp and
   the window is 168 h sliding. Note that **every `vagrant destroy` burns a slot**, because the
   wildcard only lives in etcd. Go back to `LAB_ACME_ISSUER=staging` while you wait, or back the
-  Secret up before destroying (see [`../../README.md`](../../README.md) §5).
+  Secret up before destroying (see [`../README.md`](../README.md)).
 
 ## ⚠️ Pitfalls
 
