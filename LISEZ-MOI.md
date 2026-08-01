@@ -329,7 +329,7 @@ cluster bootstrapé  (lab Talos ou lab kubeadm — nodes NotReady, pas encore de
               │             true (défaut) → self-signed/   openssl, AC locale
               │             false         → cert-manager/  Let's Encrypt DNS-01 Cloudflare
               │
-              └─ addons : stockage → bases → secrets → observabilité → sécurité
+              └─ addons : stockage → bases → identité → secrets → observabilité → sécurité
 ```
 
 C'est exactement l'ordre de `platform-up.sh` (`[1/4]` → `[4/4]`). Les deux modes TLS
@@ -383,6 +383,7 @@ d'environnement.
 | Longhorn | `longhorn/longhorn` | `1.12.0` | `longhorn/longhorn-up.sh` | `LONGHORN_VERSION` |
 | local-path-provisioner | image `rancher/…` | `v0.0.36` | `local-path-storage/local-path-storage.yaml` | — |
 | CloudNativePG | `cnpg/cloudnative-pg` | `0.29.0` (app 1.30.0) | `cloudnative-pg/cloudnative-pg-up.sh` | `CNPG_VERSION` |
+| Keycloak | `keycloak-k8s-resources` (opérateur **et** serveur) | `26.7.0` | `keycloak/keycloak-up.sh` | `KEYCLOAK_VERSION` |
 | Vault | `hashicorp/vault` | `0.34.0` | `vault-cluster/vault-up.sh` | `VAULT_CHART_VERSION` |
 | Vault Secrets Operator | `hashicorp/vault-secrets-operator` | `1.5.0` | `vault-secret-operator/` (doc) | — |
 | kube-prometheus-stack | `prometheus-community/…` | `88.0.1` (op. v0.93.0) | `observability/observability-up.sh` | `KPS_VERSION` |
@@ -432,6 +433,12 @@ d'environnement.
 | Dossier | Rôle | Commande | Prérequis |
 |---|---|---|---|
 | [`cloudnative-pg/`](cloudnative-pg/LISEZ-MOI.md) | opérateur PostgreSQL HA + cluster 3 nœuds, bascule auto, **sauvegardes S3 + PITR** | `./install.sh <distro> cnpg` | SC `longhorn-r1` |
+
+### 🪪 Identité
+
+| Dossier | Rôle | Commande | Prérequis |
+|---|---|---|---|
+| [`keycloak/`](keycloak/LISEZ-MOI.md) | Keycloak par son **opérateur**, realm `lab` déclaré, issuer OIDC sur `keycloak.<LAB_DOMAIN>` | `./install.sh <distro> keycloak` | `cnpg`, SC `longhorn-r1` |
 
 ### 🔐 Secrets
 

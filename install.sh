@@ -35,6 +35,7 @@ CATALOGUE=(
   "minio|minio-s3/minio-up.sh|MinIO standalone (S3 + console)"
   "minio-cluster|minio-s3/cluster/minio-cluster-up.sh|MinIO distribué 4 nœuds (cible des sauvegardes)"
   "cnpg|cloudnative-pg/cloudnative-pg-up.sh|opérateur PostgreSQL HA + cluster de démo"
+  "keycloak|keycloak/keycloak-up.sh|Keycloak par son opérateur + realm 'lab' (IdP OIDC)"
   "vault|vault-cluster/vault-up.sh|HashiCorp Vault HA (Raft) + UI HTTPS"
   "observability|observability/observability-up.sh|kube-prometheus-stack + Loki + Alloy"
   "npd|node-problem-detector/node-problem-detector-up.sh|node-problem-detector (santé des nodes)"

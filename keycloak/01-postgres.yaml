@@ -1,0 +1,58 @@
+# 01-postgres.yaml — la base PostgreSQL de Keycloak, gérée par CloudNativePG.
+#
+# Keycloak stocke TOUT en base : realms, clients, utilisateurs, sessions offline. Sans
+# base externe il repart de zéro à chaque redémarrage de pod (le mode `dev-file` ne
+# survit pas au pod, et l'opérateur le refuse en production). Cette base est donc un
+# prérequis dur, pas une option.
+#
+# Pourquoi CloudNativePG plutôt qu'un Deployment `postgres:17` maison : l'opérateur est
+# DÉJÀ dans ce dépôt (cf. ../cloudnative-pg/), il gère le failover, les sauvegardes et
+# la rotation des identifiants, et il produit tout seul le Secret `keycloak-db-app` que
+# le CR Keycloak référence juste en dessous. Un composant de plus à installer, zéro
+# manifeste PostgreSQL à maintenir ici.
+#
+# 1 seule instance : c'est un lab, et la réplication PostgreSQL n'apporte rien tant que
+# Keycloak lui-même tourne en un seul exemplaire. `../cloudnative-pg/cluster-demo.yaml`
+# montre la version HA à 3 nœuds.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: keycloak-db
+  namespace: keycloak
+spec:
+  instances: 1
+
+  # `longhorn-r1` = 1 réplica bloc. C'est la SC socle du dépôt pour les bases : la
+  # redondance se joue au niveau applicatif (ici : nulle part, une instance), pas en
+  # empilant 3 copies Longhorn sous chaque instance — le disque OS des workers fait 20 Go.
+  storage:
+    size: 2Gi
+    storageClass: longhorn-r1
+
+  # Calibré pour des workers à 4 Go (cf. WK_MEM du lab.env), en tenant compte du fait que
+  # Keycloak (~1 Go) tourne sur les mêmes nodes.
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+
+  postgresql:
+    parameters:
+      max_connections: "100"
+      shared_buffers: "128MB"
+
+  # PodMonitor désactivé tant que kube-prometheus-stack n'est pas installé
+  # (cf. ../observability/) : sinon l'opérateur crée un PodMonitor sans CRD derrière.
+  monitoring:
+    enablePodMonitor: false
+
+  # Base et propriétaire EXPLICITES : sans ça CNPG crée la base `app` et l'utilisateur
+  # `app`, et le CR Keycloak devrait pointer là. On préfère des noms qui disent ce qu'ils
+  # sont. Le Secret produit garde, lui, le nom dérivé du cluster : `keycloak-db-app`
+  # (clés `username`, `password`, `host`, `dbname`, `uri`).
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: keycloak
