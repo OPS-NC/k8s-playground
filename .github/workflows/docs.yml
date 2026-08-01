@@ -56,6 +56,11 @@ jobs:
         uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
+          # Les dépendances sont déclarées en PEP 723 DANS build.py : sans ce glob, uv
+          # cherche un requirements.txt/pyproject.toml, n'en trouve aucun, et annote le
+          # job d'un « the cache will never get invalidated ». Le cache suit donc le
+          # seul fichier qui porte les versions.
+          cache-dependency-glob: docs/build.py
 
       # build.py interroge git (ls-files, check-ignore, log -1) : le checkout suffit.
       #
