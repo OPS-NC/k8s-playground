@@ -53,42 +53,23 @@ spec:
       - name: k8s-admins
       - name: k8s-viewers
 
-    # --- The `groups` scope ---------------------------------------------------
-    # Keycloak DOES NOT EMIT group membership by default: without this scope the token carries
-    # no `groups` claim and any RBAC based on it is silent — with no error, just an
-    # unexplainable "forbidden" on the apiserver side.
-    clientScopes:
-      - name: groups
-        protocol: openid-connect
-        description: Group membership, flat, in the `groups` claim
-        attributes:
-          include.in.token.scope: "true"
-          display.on.consent.screen: "false"
-        protocolMappers:
-          - name: groups
-            protocol: openid-connect
-            protocolMapper: oidc-group-membership-mapper
-            config:
-              claim.name: groups
-              # `false` => `k8s-admins` and not `/k8s-admins`. Kubernetes RBAC bindings compare
-              # the string as is: a leading `/` would make every match fail.
-              full.path: "false"
-              id.token.claim: "true"
-              access.token.claim: "true"
-              userinfo.token.claim: "true"
-
-    # Scopes assigned by default to every NEW client of the realm. The list REPLACES the
-    # realm's own: the built-in scopes must therefore be repeated, otherwise a client created
-    # afterwards (the `dex` client, for instance) would lose `profile` and `email` — hence the
-    # user's name and address.
-    defaultDefaultClientScopes:
-      - acr
-      - basic
-      - email
-      - profile
-      - roles
-      - web-origins
-      - groups
+    # --- Client scopes: NOT declared here, and that is the point -------------
+    # A `clientScopes:` key in this representation SUPPRESSES every built-in client scope:
+    # Keycloak only runs its own `setupClientScopes()` when the imported realm declares none.
+    # Declaring just `groups` here therefore produced a realm with exactly two scopes —
+    # `groups` and `offline_access` — and no `profile`, no `email`, no `roles`.
+    #
+    # The symptom lands three components away and names the wrong culprit: ../dex/ requests
+    # `openid profile email groups`, Keycloak refuses the authorization request outright, and
+    # the browser never reaches a login form:
+    #     error=invalid_scope
+    #     Invalid scopes: openid openid profile email groups
+    # The message lists EVERY requested scope rather than the missing ones, so it reads as a
+    # `groups` problem (and the duplicated `openid` — harmless, Dex prepends its own).
+    #
+    # So we let Keycloak create its built-ins, and `keycloak-up.sh` adds the one scope that is
+    # ours (`groups`) afterwards, with kcadm. Same reason `defaultDefaultClientScopes` is gone:
+    # it can only reference scopes that already exist at import time.
 
     # --- Demo users -----------------------------------------------------------
     # TWO users, because one proves nothing. `demo` gets `cluster-admin` and `viewer` gets

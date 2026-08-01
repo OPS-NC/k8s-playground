@@ -38,6 +38,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/common.sh
 . "${HERE}/../lib/common.sh"
+# shellcheck source=../lib/keycloak.sh
+. "${HERE}/../lib/keycloak.sh"
 k8s_init "$@"
 
 # --- Pinned versions (overridable through an environment variable) -----------
@@ -49,8 +51,10 @@ REALM="${REALM:-lab}"
 # --- Prerequisites ----------------------------------------------------------
 need kubectl helm openssl
 require_apiserver
-kubectl get crd keycloakoidcclients.k8s.keycloak.org >/dev/null 2>&1 \
-  || fail "the Keycloak operator is missing (CRD keycloakoidcclients.k8s.keycloak.org).
+# `keycloaks` and not `keycloakoidcclients`: the client CRD is no longer used (see step 2), so
+# its presence proves nothing we depend on. The core CRD is the real "operator installed" signal.
+kubectl get crd keycloaks.k8s.keycloak.org >/dev/null 2>&1 \
+  || fail "the Keycloak operator is missing (CRD keycloaks.k8s.keycloak.org).
         Install it first:  ./install.sh ${K8S_DISTRO} keycloak"
 kubectl -n "$KC_NS" get keycloak keycloak >/dev/null 2>&1 \
   || fail "no Keycloak CR named 'keycloak' in namespace ${KC_NS}.
@@ -93,13 +97,70 @@ else
 fi
 
 # ============================================================================
-log "[2/5] 'dex' OIDC client in the ${REALM} realm (KeycloakOIDCClient CRD)"
-# The versioned manifest carries the neutral domain: substituted on the fly, as everywhere
-# else in k8s-playground/ (see ../README.md).
-render "${HERE}/01-keycloak-client.yaml" | kubectl apply -f -
-# The `Ready` condition only shows up once the client really exists on the Keycloak side.
-# `|| true`: the final summary tells the truth, and the object is reconciled continuously.
-kubectl -n "$KC_NS" wait --for=condition=Ready keycloakoidcclient/dex --timeout=180s || true
+log "[2/5] 'dex' OIDC client in the ${REALM} realm (kcadm)"
+# ⚠️ NOT the `KeycloakOIDCClient` CRD, and that is a deliberate step BACKWARDS. Keycloak 26.7
+#    ships that CRD and it would be the natural way to declare this client — it simply does not
+#    work, and it fails silently: the CR applies, `kubectl apply` says `configured`, the object
+#    exists, and it is never reconciled. Two independent blockers, measured on 26.7.0:
+#      1. the server needs the `client-admin-api:v2` feature (see ../keycloak/02-keycloak.yaml),
+#         AND the operator caches the feature list — it keeps reporting the feature as missing
+#         until it is itself restarted;
+#      2. past that, `KeycloakClientBaseController` looks up a Secret named
+#         `<keycloak-cr-name>-admin`, while the operator's own bootstrap Secret is
+#         `keycloak-initial-admin`. Supplying username/password under the expected name is not
+#         enough either: the controller dies on a NullPointerException, so it wants other keys.
+#    The whole failure is invisible until login time, where it surfaces as `invalid_client`.
+#    A working non-reconciled client beats a declarative one that is never created; when
+#    upstream fixes the CRD, this block goes away. Details: README.md.
+#
+# Idempotent, and it has to be: the client secret is generated once (above) and the realm may
+# already hold a client carrying it. We create on first run, and re-align the mutable fields
+# afterwards — never touching the secret of an existing client, which would silently
+# invalidate the copy Dex reads.
+DEX_REDIRECT="https://dex.${LAB_DOMAIN}/callback"
+kc_wait_ready
+dex_uuid="$(kc_client_uuid "$REALM" dex)"
+if [ -z "$dex_uuid" ]; then
+  printf '%s' "{
+    \"clientId\": \"dex\",
+    \"name\": \"Dex (the lab OIDC broker)\",
+    \"description\": \"Confidential client used by Dex to federate the lab realm\",
+    \"enabled\": true,
+    \"protocol\": \"openid-connect\",
+    \"publicClient\": false,
+    \"secret\": \"${KC_CLIENT_SECRET}\",
+    \"standardFlowEnabled\": true,
+    \"directAccessGrantsEnabled\": false,
+    \"implicitFlowEnabled\": false,
+    \"serviceAccountsEnabled\": false,
+    \"redirectUris\": [ \"${DEX_REDIRECT}\" ]
+  }" | kc_adm create clients -r "$REALM" -f - >/dev/null \
+    || fail "creation of the 'dex' client failed in realm ${REALM}."
+  dex_uuid="$(kc_client_uuid "$REALM" dex)"
+  echo "    'dex' client created (standard flow only, redirect ${DEX_REDIRECT})."
+else
+  kc_adm update "clients/${dex_uuid}" -r "$REALM" \
+    -s enabled=true -s standardFlowEnabled=true \
+    -s directAccessGrantsEnabled=false -s implicitFlowEnabled=false \
+    -s serviceAccountsEnabled=false \
+    -s "redirectUris=[\"${DEX_REDIRECT}\"]" >/dev/null \
+    || warn "could not re-align the 'dex' client — check it in the console."
+  echo "    'dex' client already present — fields re-aligned, secret left untouched."
+fi
+
+# `groups` as an OPTIONAL scope, not a default one: Dex asks for it explicitly in its
+# `scopes:` list (values.yaml), and a requested scope has to be assigned to the client. The
+# built-in `profile`/`email`/`roles`/… come with the realm and are already default.
+groups_uuid="$(kc_adm get client-scopes -r "$REALM" --fields id,name 2>/dev/null \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print(next((x['id'] for x in d if x['name']=='groups'),''))" 2>/dev/null || true)"
+if [ -n "$groups_uuid" ]; then
+  kc_adm update "clients/${dex_uuid}/optional-client-scopes/${groups_uuid}" -r "$REALM" >/dev/null 2>&1 \
+    && echo "    'groups' scope assigned to the client (optional)." \
+    || echo "    'groups' scope already assigned."
+else
+  warn "no 'groups' client scope in realm ${REALM} — the token will carry no group and the
+        RBAC of rbac.yaml will match nothing. Install ../keycloak/ first."
+fi
 
 # ============================================================================
 # The lab CA, so that Dex can VALIDATE Keycloak. Dex fetches the realm's

@@ -35,6 +35,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/common.sh
 . "${HERE}/../lib/common.sh"
+# shellcheck source=../lib/keycloak.sh
+. "${HERE}/../lib/keycloak.sh"
 k8s_init "$@"
 
 # --- Pinned version (overridable through an environment variable) ------------
@@ -112,6 +114,34 @@ done
 render "${HERE}/03-realm-lab.yaml" | kubectl apply -f -
 echo "    waiting for the import job..."
 kubectl -n "$NS" wait --for=condition=Done keycloakrealmimport/lab --timeout=300s || true
+
+# --- The `groups` client scope, added AFTER the import ----------------------
+# It is deliberately NOT in 03-realm-lab.yaml: a `clientScopes:` key in the imported
+# representation suppresses every built-in scope (no `profile`, no `email`), and ../dex/ then
+# dies on `invalid_scope` before ever showing a login form. Full reasoning in that file.
+#
+# Keycloak emits NO group membership by default: without this scope the token carries no
+# `groups` claim, and any RBAC built on it fails silently — no error, just an unexplainable
+# "forbidden" on the apiserver side.
+kc_wait_ready
+kc_ensure_client_scope lab groups '{
+  "name": "groups",
+  "protocol": "openid-connect",
+  "description": "Group membership, flat, in the groups claim",
+  "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" },
+  "protocolMappers": [ {
+    "name": "groups",
+    "protocol": "openid-connect",
+    "protocolMapper": "oidc-group-membership-mapper",
+    "config": {
+      "claim.name": "groups",
+      "full.path": "false",
+      "id.token.claim": "true",
+      "access.token.claim": "true",
+      "userinfo.token.claim": "true"
+    }
+  } ]
+}'
 
 # ============================================================================
 log "[5/5] HTTPRoute keycloak.${LAB_DOMAIN}"

@@ -95,7 +95,7 @@ kubectl -n keycloak create secret generic dex-keycloak-client --from-literal=cli
 kubectl -n dex      create secret generic dex-keycloak-client --from-literal=client-secret="$S"
 kubectl -n dex create secret generic dex-kubernetes-client \
   --from-literal=client-secret="$(openssl rand -hex 32)"
-kubectl apply -f dex/01-keycloak-client.yaml           # après substitution du domaine
+dex/dex-up.sh <distro>                                 # l'étape 2 crée le client avec kcadm
 helm repo add dex https://charts.dexidp.io && helm repo update dex
 helm upgrade --install dex dex/dex -n dex --version 0.24.1 --values dex/values.yaml
 kubectl apply -f dex/httproute.yaml
@@ -147,15 +147,47 @@ kubectl -n dex create secret generic dex-kubernetes-client \
   --from-literal=client-secret="$(openssl rand -hex 32)"
 ```
 
-### 2. Le client Keycloak, déclaré
+### 2. Le client Keycloak, avec kcadm
 
 ```bash
-sed "s/lab\.example\.io/${LAB_DOMAIN}/g" dex/01-keycloak-client.yaml | kubectl apply -f -
-kubectl -n keycloak get keycloakoidcclient dex -o jsonpath='{.status.conditions}' | jq
+# kcadm vit DANS l'image Keycloak : ni DNS, ni AC, ni curl sur l'hôte
+KC="kubectl -n keycloak exec -i keycloak-0 -- /opt/keycloak/bin/kcadm.sh"
+$KC config credentials --server http://localhost:8080 --realm master \
+  --user "$(kubectl -n keycloak get secret keycloak-initial-admin -o jsonpath='{.data.username}' | base64 -d)" \
+  --password "$(kubectl -n keycloak get secret keycloak-initial-admin -o jsonpath='{.data.password}' | base64 -d)"
+
+$KC create clients -r lab -f - <<EOF
+{ "clientId": "dex", "enabled": true, "publicClient": false,
+  "secret": "$(kubectl -n dex get secret dex-keycloak-client -o jsonpath='{.data.client-secret}' | base64 -d)",
+  "standardFlowEnabled": true, "directAccessGrantsEnabled": false,
+  "implicitFlowEnabled": false, "serviceAccountsEnabled": false,
+  "redirectUris": [ "https://dex.${LAB_DOMAIN}/callback" ] }
+EOF
+$KC get clients -r lab -q clientId=dex --fields clientId,enabled,redirectUris
 ```
 
-Il n'y a pas de champ `clientId` dans cette CRD : `metadata.name` **est** l'identifiant du
-client, et il doit correspondre au `clientID: dex` du connecteur Dex.
+Le `clientId` doit correspondre exactement au `clientID: dex` du connecteur Dex.
+
+> ⚠️ **Pourquoi pas le CRD `KeycloakOIDCClient`.** Keycloak 26.7 en fournit un, et ce serait la
+> façon naturelle de déclarer ce client. Il ne fonctionne pas, et il échoue **en silence** : le
+> CR s'applique, `kubectl apply` affiche `configured`, l'objet existe — et il n'est jamais
+> réconcilié, donc le client n'apparaît jamais dans le realm. Tout ne se voit qu'au login, sous
+> la forme d'un `invalid_client`. Deux blocages indépendants, mesurés sur 26.7.0 :
+>
+> 1. le serveur exige la feature `client-admin-api:v2` (cf. `../keycloak/02-keycloak.yaml`),
+>    **et** l'opérateur met en cache la liste des features du serveur — il continue de la
+>    signaler absente jusqu'à ce qu'on redémarre l'opérateur lui-même
+>    (`kubectl -n keycloak rollout restart deploy/keycloak-operator`) ;
+> 2. ensuite, `KeycloakClientBaseController` cherche un Secret nommé
+>    `<nom-du-CR-keycloak>-admin`, alors que le Secret d'amorçage de l'opérateur s'appelle
+>    `keycloak-initial-admin` — un autre nom. Créer `keycloak-admin` avec `username`/`password`
+>    ne suffit pas non plus : le contrôleur meurt alors sur
+>    `Cannot invoke "String.getBytes(...)" because "src" is null`, il attend donc d'autres clés
+>    (vraisemblablement un service account, `client-id`/`client-secret`).
+>
+> Un client qui fonctionne sans être réconcilié vaut mieux qu'un client déclaratif qui n'est
+> jamais créé. Quand l'amont corrigera le CRD, l'étape 2 de `dex-up.sh` redeviendra un
+> `kubectl apply`.
 
 ### 3. Dex lui-même
 
@@ -232,13 +264,19 @@ done
 ```
 
 <details>
-<summary><code>SELF_SIGNED=true</code> : donner aussi l'AC du lab à l'apiserver</summary>
+<summary>Wildcard non trusté (<code>SELF_SIGNED=true</code> <b>ou</b> ACME staging) : donner aussi l'AC du lab à l'apiserver</summary>
 
 `/` est en lecture seule sur Talos et le pod statique ne voit que ce qu'on lui monte. Deux
 ajouts, donc : le fichier, et le volume qui l'expose.
 
 ```bash
-CA=$(sed 's/^/          /' ../Vagrant-Talos/_out/self-signed/ca.crt)   # indenter le PEM
+# Le Secret wildcard marche dans TOUS les modes, et c'est tout l'intérêt : `tls.crt` porte
+# toujours son propre point d'ancrage — feuille + AC locale en self-signed (selfsigned-up.sh les
+# concatène exprès), feuille + intermédiaire (+ racine) en ACME. `_out/self-signed/ca.crt`
+# n'existe que dans un des trois modes : ne pas s'en servir.
+kubectl -n envoy-gateway-system get secret "wildcard-$(echo "$LAB_DOMAIN" | tr . -)-tls" \
+  -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/lab-ca.crt
+CA=$(sed 's/^/          /' /tmp/lab-ca.crt)                            # indenter le PEM
 cat > /tmp/oidc-ca.talos.yaml <<EOF
 machine:
   files:
@@ -281,13 +319,13 @@ kubectl get --raw=/readyz && echo
 ```
 
 <details>
-<summary><code>SELF_SIGNED=true</code> : donner aussi l'AC du lab à l'apiserver</summary>
+<summary>Wildcard non trusté (<code>SELF_SIGNED=true</code> <b>ou</b> ACME staging) : donner aussi l'AC du lab à l'apiserver</summary>
 
 `/etc/kubernetes/pki` est **déjà** monté dans le pod statique : le fichier suffit.
 
 ```bash
 vagrant ssh k8s-cp1 -c 'sudo tee /etc/kubernetes/pki/oidc-ca.crt >/dev/null' \
-  < ../Vagrant-KubeADM/_out/self-signed/ca.crt
+  < /tmp/lab-ca.crt        # extrait du Secret wildcard, cf. l'encart Talos ci-dessus
 # puis ajouter dans la ConfigMap, à côté des autres flags :
 #   - name: oidc-ca-file
 #     value: /etc/kubernetes/pki/oidc-ca.crt
@@ -312,7 +350,7 @@ vagrant ssh k8s-cp1 -c 'sudo tee /etc/kubernetes/pki/oidc-ca.crt >/dev/null' \
 
 | Fichier | Rôle |
 |---|---|
-| `01-keycloak-client.yaml` | `KeycloakOIDCClient` : le client `dex` du realm `lab`, flux `STANDARD` seul, une URL de redirection exacte |
+| *(aucun manifeste de client)* | le client `dex` est créé par l'étape 2 de `dex-up.sh` avec `kcadm` — flux `STANDARD` seul, une URL de redirection exacte. Le CRD `KeycloakOIDCClient` est inutilisable, cf. ci-dessus |
 | `values.yaml` | Dex : issuer public, stockage Kubernetes, connecteur `oidc` vers le realm, client statique `kubernetes` ; les deux secrets viennent de variables d'environnement |
 | `httproute.yaml` | `HTTPRoute` HTTPS `dex.lab.example.io` → `dex:5556`, `sectionName: https` |
 | `rbac.yaml` | `oidc:k8s-admins` → `cluster-admin`, `oidc:k8s-viewers` → `view` |
@@ -324,7 +362,8 @@ vagrant ssh k8s-cp1 -c 'sudo tee /etc/kubernetes/pki/oidc-ca.crt >/dev/null' \
 
 ```bash
 kubectl -n dex get pods,httproute                       # dex Running, route Accepted
-kubectl -n keycloak get keycloakoidcclient dex          # Ready=True
+kubectl -n keycloak exec -i keycloak-0 -- /opt/keycloak/bin/kcadm.sh \
+  get clients -r lab -q clientId=dex --fields clientId,enabled,redirectUris   # le client existe
 curl -sk https://dex.lab.example.io/.well-known/openid-configuration | jq .issuer
 
 # l'apiserver voit réellement les flags (Talos comme kubeadm) :
@@ -380,6 +419,36 @@ kubectl --context=oidc-viewer auth can-i get secrets # no  <- `view` exclut les 
 > ⚠️ **`view` n'est pas « tout lire ».** Il n'accorde rien sur les objets à portée cluster :
 > `kubectl --context=oidc-viewer get nodes` est donc **Forbidden** — c'est le ClusterRole qui
 > fonctionne, pas le login qui casse. Teste avec `get pods`, que `view` autorise bien.
+
+### Basculer d'un compte à l'autre
+
+Deux caches te maintiennent connecté, et c'est au second que personne ne pense.
+
+```bash
+# 1. le cache de token de kubelogin — par contexte, d'où le --token-cache-dir distinct ci-dessus
+rm -rf ~/.kube/cache/oidc-login ~/.kube/cache/oidc-login-viewer
+
+# 2. la session SSO Keycloak — sans ça, le navigateur s'ouvre et se referme aussitôt, et tu es
+#    silencieusement reconnecté avec l'utilisateur PRÉCÉDENT. Rien ne le signale.
+kubectl -n keycloak exec -i keycloak-0 -- /opt/keycloak/bin/kcadm.sh \
+  config credentials --server http://localhost:8080 --realm master \
+  --user "$(kubectl -n keycloak get secret keycloak-initial-admin -o jsonpath='{.data.username}' | base64 -d)" \
+  --password "$(kubectl -n keycloak get secret keycloak-initial-admin -o jsonpath='{.data.password}' | base64 -d)"
+kubectl -n keycloak exec -i keycloak-0 -- /opt/keycloak/bin/kcadm.sh \
+  create realms/lab/logout-all                       # ferme toutes les sessions du realm
+```
+
+Une fenêtre de navigation privée obtient le même résultat sans toucher à aucun état, et c'est
+le plus rapide pour tenir les deux identités en parallèle.
+
+> ⚠️ **Un logout ne révoque pas un token déjà émis.** L'apiserver valide une signature et une
+> expiration, pas un état de session : après `logout-all`, un token présent dans le cache de
+> kubelogin reste utilisable jusqu'à son expiration. Pour réellement couper l'accès d'un compte,
+> désactive l'utilisateur (`enabled: false`) — ou vide le cache local. `logout-all` empêche
+> seulement le PROCHAIN login d'être silencieux.
+
+> 💡 Un `auth whoami` qui renvoie l'utilisateur précédent est le symptôme d'une session SSO
+> vivante, **pas** d'un contexte mal configuré. C'est le contrôle qui distingue les deux.
 
 ## 🧪 Scénario — l'autorisation vit dans Keycloak, pas dans le cluster
 
