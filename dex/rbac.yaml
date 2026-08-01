@@ -1,0 +1,52 @@
+# rbac.yaml — ce qui donne un SENS aux groupes Keycloak.
+#
+# Kubernetes n'a pas d'utilisateurs : il a des chaînes de caractères que l'authentifieur
+# lui remonte. Après la chaîne Keycloak → Dex → apiserver, l'utilisateur `demo`, membre
+# du groupe `k8s-admins`, arrive ici sous la forme :
+#
+#     user   = oidc:demo@lab.example.io      (claim `email`, préfixé)
+#     groups = [oidc:k8s-admins]             (claim `groups`, préfixé)
+#
+# Le préfixe `oidc:` vient de `--oidc-username-prefix` / `--oidc-groups-prefix` posés sur
+# l'apiserver (cf. apiserver-oidc.talos.yaml / apiserver-oidc.kubeadm.yaml). Il n'est PAS
+# décoratif : sans lui, un annuaire qui déclare un groupe `system:masters` ou un
+# utilisateur `system:kube-scheduler` usurperait une identité interne du cluster. Toute
+# liaison RBAC doit donc porter ce préfixe — et si tu changes le préfixe, change-le ici.
+#
+# Deux niveaux seulement, volontairement : `cluster-admin` pour la démonstration, `view`
+# pour montrer qu'un même montage OIDC sert aussi à donner un accès en LECTURE sans
+# distribuer le moindre certificat client.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: oidc-k8s-admins
+  labels:
+    app.kubernetes.io/part-of: dex
+subjects:
+  # `kind: Group` et non `User` : c'est l'appartenance qui donne le droit, pas la
+  # personne. Ajouter quelqu'un se fait dans Keycloak, jamais avec kubectl.
+  - kind: Group
+    name: oidc:k8s-admins
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: oidc-k8s-viewers
+  labels:
+    app.kubernetes.io/part-of: dex
+subjects:
+  - kind: Group
+    name: oidc:k8s-viewers
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  # `view` est un ClusterRole intégré : lecture seule sur la plupart des ressources
+  # d'un namespace, MAIS il ne donne accès ni aux Secrets ni aux ressources de cluster.
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io

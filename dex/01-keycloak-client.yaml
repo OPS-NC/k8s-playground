@@ -1,0 +1,44 @@
+# 01-keycloak-client.yaml — le client OIDC `dex` DANS Keycloak, déclaré par un CR.
+#
+# Jusqu'à Keycloak 26.7, créer un client depuis l'extérieur voulait dire : un script
+# `kcadm.sh`, un token d'admin, et un état que rien ne reconcilie. Le CRD
+# `KeycloakOIDCClient` remplace tout ça — l'opérateur crée le client dans le realm et le
+# maintient conforme à cet objet. C'est le pendant, côté client, de ce que
+# `KeycloakRealmImport` fait pour le realm.
+#
+# ⚠️ Il n'y a PAS de champ `clientId` : c'est `metadata.name` qui le porte. Ce nom doit
+#    donc valoir exactement le `clientID` de la configuration Dex (values.yaml).
+#
+# Le CR vit dans le namespace `keycloak` et non `dex` : l'opérateur ne surveille que son
+# propre namespace (`JOSDK_WATCH_CURRENT`), et `keycloakCRName` désigne un CR `Keycloak`
+# « du même namespace ». Le Secret référencé ci-dessous doit donc exister LÀ AUSSI — d'où
+# le même Secret créé dans les deux namespaces par `dex-up.sh` (les Secrets ne
+# franchissent pas les namespaces).
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: KeycloakOIDCClient
+metadata:
+  name: dex
+  namespace: keycloak
+spec:
+  keycloakCRName: keycloak
+  realm: lab
+  client:
+    displayName: Dex (broker OIDC du lab)
+    description: Client confidentiel utilisé par Dex pour fédérer le realm lab
+    enabled: true
+    # STANDARD = authorization code flow, le seul dont Dex a besoin. On n'active ni
+    # DIRECT_GRANT (mot de passe envoyé au serveur, à proscrire), ni SERVICE_ACCOUNT, ni
+    # IMPLICIT (obsolète) : un client OIDC ne doit exposer que le flux qu'il utilise.
+    loginFlows:
+      - STANDARD
+    # L'UNIQUE URL vers laquelle Keycloak acceptera de renvoyer le navigateur. Pas de
+    # joker : un `*` ici transforme le client en relais ouvert (vol de code d'autorisation).
+    redirectUris:
+      - https://dex.lab.example.io/callback
+    auth:
+      method: client-secret
+      # Le secret est généré par `dex-up.sh` (openssl) et n'existe que dans ce Secret ;
+      # Keycloak le lit ici, Dex lit le sien dans le namespace `dex`. Rien dans git.
+      secretRef:
+        name: dex-keycloak-client
+        key: client-secret

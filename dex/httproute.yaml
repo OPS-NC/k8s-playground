@@ -1,0 +1,28 @@
+# Expose Dex (endpoints OIDC + page de choix du connecteur) en HTTPS sous
+# `dex.lab.example.io`, derrière `main-gateway` (Envoy Gateway). Le TLS est le wildcard
+# `*.lab.example.io` déjà porté par l'écouteur `https` — aucun Certificate à créer.
+#
+# La route vit dans le namespace `dex` mais s'attache au Gateway du namespace
+# `envoy-gateway-system` : possible car `main-gateway` ouvre ses écouteurs à `from: All`.
+# Backend dans le même namespace que la route → pas de ReferenceGrant.
+#
+# ⚠️ Ce hostname est l'`issuer` de Dex. Il doit être identique, au caractère près, à
+#    `config.issuer` (values.yaml) et à `--oidc-issuer-url` de l'apiserver. C'est la
+#    valeur signée dans chaque jeton : un écart et l'apiserver les rejette tous.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: dex
+  namespace: dex
+spec:
+  parentRefs:
+    - name: main-gateway
+      namespace: envoy-gateway-system
+      sectionName: https          # cible l'écouteur TLS :443
+  hostnames:
+    - dex.lab.example.io         # matche le wildcard *.lab.example.io
+  rules:
+    - backendRefs:
+        # Dex écoute en clair sur 5556 (`https.enabled: false`) : Envoy fait le HTTPS.
+        - name: dex
+          port: 5556

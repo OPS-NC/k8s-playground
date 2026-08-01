@@ -1,0 +1,113 @@
+# values.yaml — Dex pour les labs Talos / kubeadm (chart dexidp/dex).
+#
+# RÔLE DE DEX ICI. Le serveur d'API Kubernetes ne sait parler qu'à UN émetteur OIDC, et
+# uniquement en lecture de jetons : il ne fait pas de fédération, pas de mapping de
+# claims, pas de rotation de clients. Dex est ce point unique — un broker : il se présente
+# à l'apiserver comme l'émetteur `https://dex.lab.example.io`, et va lui-même chercher
+# l'identité chez Keycloak. Ajouter demain un second annuaire (LDAP, GitHub) se fait par
+# un connecteur de plus, sans retoucher au control plane.
+#
+# Principe d'expo, comme partout dans ce dépôt : le TLS est terminé par **Envoy Gateway**
+# (wildcard `*.lab.example.io`) et Dex tourne EN CLAIR derrière (`https.enabled: false`,
+# le défaut du chart). L'`issuer` reste l'URL PUBLIQUE : c'est elle qui est signée dans
+# les jetons et vérifiée par l'apiserver.
+
+# Un seul réplica : Dex est sans état ici (stockage dans l'API Kubernetes, cf. plus bas)
+# mais 2 réplicas exigeraient un `refresh token` partagé correctement — inutile en lab.
+replicaCount: 1
+
+# Le secret du client Keycloak et celui du client `kubernetes` n'apparaissent PAS dans
+# cette configuration : Dex étend les variables d'environnement de son fichier de config
+# au démarrage. Les valeurs viennent donc de Secrets, générés par `dex-up.sh`.
+envVars:
+  - name: KEYCLOAK_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: dex-keycloak-client
+        key: client-secret
+  - name: KUBERNETES_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: dex-kubernetes-client
+        key: client-secret
+
+config:
+  # URL PUBLIQUE. Elle doit être identique à trois endroits : ici, dans le hostname de
+  # l'`HTTPRoute`, et dans `--oidc-issuer-url` de l'apiserver. Le moindre écart (un `/`
+  # final, `http` au lieu de `https`) et l'apiserver rejette tous les jetons avec un
+  # « oidc: id token issued by a different provider ».
+  issuer: https://dex.lab.example.io
+
+  # Stockage dans l'API Kubernetes (CRD créées par Dex au démarrage) : pas de base à
+  # opérer, et les sessions survivent au redémarrage du pod. Le chart pose le RBAC
+  # correspondant (`rbac.create`).
+  storage:
+    type: kubernetes
+    config:
+      inCluster: true
+
+  # Dex écoute en clair : Envoy fait le HTTPS devant. `0.0.0.0` et non `127.0.0.1`,
+  # sinon le Service ne joint rien.
+  web:
+    http: 0.0.0.0:5556
+
+  oauth2:
+    # Sans ça, chaque `kubectl` affiche une page « autoriser cette application ? » : le
+    # consentement n'a aucun sens quand le client est le cluster lui-même.
+    skipApprovalScreen: true
+    # Le refresh token permet à kubectl de renouveler son jeton sans rouvrir un
+    # navigateur. Sans `offline_access`, il faut se reconnecter à chaque expiration.
+    responseTypes:
+      - code
+
+  # --- Connecteur amont : Keycloak ------------------------------------------
+  connectors:
+    - type: oidc
+      id: keycloak
+      name: Keycloak
+      config:
+        # L'issuer du REALM, pas celui du serveur : `/realms/<realm>`.
+        issuer: https://keycloak.lab.example.io/realms/lab
+        clientID: dex
+        clientSecret: $KEYCLOAK_CLIENT_SECRET
+        redirectURI: https://dex.lab.example.io/callback
+        # `groups` doit être demandé EXPLICITEMENT : ce n'est pas un scope standard, et
+        # sans lui le jeton ne porte aucune appartenance — donc aucun RBAC ne s'applique
+        # (cf. le scope `groups` déclaré dans ../keycloak/03-realm-lab.yaml).
+        scopes:
+          - openid
+          - profile
+          - email
+          - groups
+        # Recopie le claim `groups` du jeton Keycloak dans le jeton émis par Dex.
+        # Sans `insecureEnableGroups`, le connecteur OIDC générique de Dex IGNORE les
+        # groupes de l'amont — panne silencieuse classique de ce montage.
+        insecureEnableGroups: true
+        # `getUserInfo` va chercher les claims sur l'endpoint userinfo plutôt que de se
+        # contenter de l'id_token : Keycloak n'y met pas toujours tout.
+        getUserInfo: true
+        # Nom d'utilisateur lisible (`demo`) plutôt que l'UUID `sub` de Keycloak. Le
+        # `--oidc-username-claim` de l'apiserver reste `email` : c'est ce champ-là qui
+        # devient l'identité Kubernetes, cf. le README.
+        userNameKey: preferred_username
+
+  # --- Client aval : kubectl -------------------------------------------------
+  staticClients:
+    - id: kubernetes
+      name: Kubernetes (kubectl oidc-login)
+      secret: $KUBERNETES_CLIENT_SECRET
+      # kubelogin (`kubectl oidc-login`) ouvre un navigateur et écoute en local sur
+      # 8000 : ces deux URL sont les seules valides. Elles restent en `http` et en
+      # loopback — c'est le cas prévu par la RFC 8252 pour une application native.
+      redirectURIs:
+        - http://localhost:8000
+        - http://127.0.0.1:8000
+
+# Ressources : Dex est un binaire Go minuscule, mais sans limite il finirait par être
+# évincé en premier sur des workers à 4 Go.
+resources:
+  requests:
+    cpu: 20m
+    memory: 48Mi
+  limits:
+    memory: 128Mi

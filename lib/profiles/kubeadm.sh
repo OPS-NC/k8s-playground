@@ -73,6 +73,28 @@ TRIVY_NODE_COLLECTOR=true
 # absent car remplacé par Cilium, soit métriques en loopback uniquement).
 KPS_SCRAPE_CONTROL_PLANE=true
 
+# --- Authentification OIDC du serveur d'API (dex/) ----------------------------
+# Le kube-apiserver est un POD STATIQUE : son manifeste est un fichier sur le disque de
+# chaque control plane, régénéré par `kubeadm` depuis la ConfigMap `kubeadm-config`. Il
+# n'existe donc aucune API pour le modifier — il faut une session sur chaque node.
+APISERVER_OIDC_PATCH="apiserver-oidc.kubeadm.yaml"
+APISERVER_OIDC_MECANISME="ConfigMap kubeadm-config + kubeadm init phase, sur chaque control plane"
+# $1 = chemin du fragment à fusionner. Écrit sur stdout les commandes à lancer : ce dépôt
+# n'exécute PAS ces commandes, elles redémarrent le serveur d'API (cf. dex/README.md).
+apiserver_oidc_commandes() {
+  cat <<EOF
+    # 1. fusionner le fragment dans la source de vérité (éditeur interactif)
+    kubectl -n kube-system edit configmap kubeadm-config     # coller le bloc apiServer de ${1}
+
+    # 2. sur CHAQUE control plane, régénérer le manifeste statique depuis cette ConfigMap
+    vagrant ssh k8s-cp1 -c '
+      kubectl -n kube-system get cm kubeadm-config -o jsonpath="{.data.ClusterConfiguration}" \\
+        | sudo tee /tmp/kubeadm.yaml >/dev/null
+      sudo kubeadm init phase control-plane apiserver --config /tmp/kubeadm.yaml'
+    kubectl get --raw=/readyz && echo   # vérifier AVANT de passer au control plane suivant
+EOF
+}
+
 # --- Vault / VSO -------------------------------------------------------------
 # Montage KV-v2 de démonstration, propre au lab (les policies HCL y font référence).
 VAULT_KV_MOUNT="kubeadm-lab"

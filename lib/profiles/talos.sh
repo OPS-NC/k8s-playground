@@ -84,6 +84,23 @@ TRIVY_NODE_COLLECTOR=false
 # « down » inexplicables en formation.
 KPS_SCRAPE_CONTROL_PLANE=false
 
+# --- Authentification OIDC du serveur d'API (dex/) ----------------------------
+# La configuration machine EST l'API : `talosctl patch mc` suffit, Talos régénère le
+# manifeste statique du kube-apiserver et le redémarre. Ni SSH, ni fichier à éditer.
+APISERVER_OIDC_PATCH="apiserver-oidc.talos.yaml"
+APISERVER_OIDC_MECANISME="talosctl patch mc (la configuration machine est une API)"
+# $1 = chemin du patch à appliquer. Écrit sur stdout les commandes à lancer : ce dépôt
+# n'exécute PAS ces commandes, elles redémarrent le serveur d'API (cf. dex/README.md).
+apiserver_oidc_commandes() {
+  cat <<EOF
+    for ip in \$(kubectl get nodes -l node-role.kubernetes.io/control-plane \\
+                   -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address}{" "}{end}'); do
+      talosctl -n "\$ip" patch mc --patch @${1}
+      kubectl get --raw=/readyz && echo   # vérifier AVANT de passer au suivant
+    done
+EOF
+}
+
 # --- Vault / VSO -------------------------------------------------------------
 VAULT_KV_MOUNT="talos-lab"
 
