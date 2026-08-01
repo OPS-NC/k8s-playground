@@ -1,14 +1,14 @@
-# Expose Dex (endpoints OIDC + page de choix du connecteur) en HTTPS sous
-# `dex.lab.example.io`, derrière `main-gateway` (Envoy Gateway). Le TLS est le wildcard
-# `*.lab.example.io` déjà porté par l'écouteur `https` — aucun Certificate à créer.
+# Exposes Dex (OIDC endpoints + the connector selection page) over HTTPS at
+# `dex.lab.example.io`, behind `main-gateway` (Envoy Gateway). TLS is the `*.lab.example.io`
+# wildcard already carried by the `https` listener — no Certificate to create.
 #
-# La route vit dans le namespace `dex` mais s'attache au Gateway du namespace
-# `envoy-gateway-system` : possible car `main-gateway` ouvre ses écouteurs à `from: All`.
-# Backend dans le même namespace que la route → pas de ReferenceGrant.
+# The route lives in the `dex` namespace but attaches to the Gateway of the
+# `envoy-gateway-system` namespace: possible because `main-gateway` opens its listeners to
+# `from: All`. Backend in the same namespace as the route → no ReferenceGrant.
 #
-# ⚠️ Ce hostname est l'`issuer` de Dex. Il doit être identique, au caractère près, à
-#    `config.issuer` (values.yaml) et à `--oidc-issuer-url` de l'apiserver. C'est la
-#    valeur signée dans chaque jeton : un écart et l'apiserver les rejette tous.
+# ⚠️ This hostname is Dex's `issuer`. It must be identical, character for character, to
+#    `config.issuer` (values.yaml) and to the apiserver's `--oidc-issuer-url`. It is the value
+#    signed into every token: any discrepancy and the apiserver rejects all of them.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -18,11 +18,11 @@ spec:
   parentRefs:
     - name: main-gateway
       namespace: envoy-gateway-system
-      sectionName: https          # cible l'écouteur TLS :443
+      sectionName: https          # targets the TLS :443 listener
   hostnames:
-    - dex.lab.example.io         # matche le wildcard *.lab.example.io
+    - dex.lab.example.io         # matches the *.lab.example.io wildcard
   rules:
     - backendRefs:
-        # Dex écoute en clair sur 5556 (`https.enabled: false`) : Envoy fait le HTTPS.
+        # Dex listens in plaintext on 5556 (`https.enabled: false`): Envoy does the HTTPS.
         - name: dex
           port: 5556
