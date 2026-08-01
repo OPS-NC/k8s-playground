@@ -59,6 +59,43 @@ spec:
   ingress:
     enabled: false
 
+  # --- Server features --------------------------------------------------------
+  # ⚠️ REQUIRED BY THE `KeycloakOIDCClient` CRD — and its absence fails in a way that is very
+  #    easy to miss. Declaring a client (../dex/01-keycloak-client.yaml) applies cleanly,
+  #    `kubectl apply` says `configured`, the object exists… and it is never reconciled:
+  #        status.conditions: HasErrors=True
+  #        "Cannot create/update because the server does not have client-admin-api:v2 enabled"
+  #    The client is simply never created in the realm. Nothing crashes, no pod is unhealthy —
+  #    the failure only shows up much later, at login, as an `invalid_client`.
+  #    `dex-up.sh` waits on `condition=Ready` with a `|| true`, so it swallows the timeout and
+  #    carries on: the wait costs 180 s and proves nothing.
+  #
+  # The operator drives clients through the v2 admin API, which is still behind a feature flag
+  # in Keycloak 26.x. Enabling it restarts the pod (the operator rolls the StatefulSet).
+  #
+  # ⚠️ NOT SUFFICIENT ON ITS OWN — measured on Keycloak 26.7.0, 2026-08-01:
+  #   1. The OPERATOR caches the server's feature list. After enabling the flag, the server
+  #      really does log `Experimental features enabled: client-admin-api:v2`, yet the operator
+  #      keeps reporting `the server does not have client-admin-api:v2 enabled` until it is
+  #      restarted itself:
+  #          kubectl -n keycloak rollout restart deploy/keycloak-operator
+  #      A fresh install is fine (the operator starts after the server), so this only bites when
+  #      the flag is added to a LIVE Keycloak.
+  #   2. Once past that, `KeycloakClientBaseController` looks up a Secret named
+  #      `<keycloak-cr-name>-admin` (here `keycloak-admin`) for the credentials it uses against
+  #      the admin API — and the operator's own bootstrap Secret is `keycloak-initial-admin`, a
+  #      DIFFERENT name. Creating `keycloak-admin` with `username`/`password` is not enough
+  #      either: the controller then dies on a NullPointerException
+  #      (`Cannot invoke "String.getBytes(...)" because "src" is null`), so it wants other keys
+  #      — most likely a service account (`client-id`/`client-secret`, cf.
+  #      `spec.bootstrapAdmin.service.secret`) rather than a user.
+  #      ⇒ STILL UNRESOLVED. Until it is, `KeycloakOIDCClient` objects apply cleanly and are
+  #        never reconciled, so ../dex/ installs and starts but its login ends in
+  #        `invalid_client`. Do not treat this block as "clients work now".
+  features:
+    enabled:
+      - client-admin-api:v2
+
   # --- Resources --------------------------------------------------------------
   # Keycloak 26 is a Quarkus binary: ~700 MiB at rest, more on the first start (the database
   # schema upgrade). Below a 1 GiB limit, the OOMKill lands during the Liquibase migration —
