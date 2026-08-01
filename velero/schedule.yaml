@@ -1,0 +1,32 @@
+# schedule.yaml — the RECURRING backup of the whole cluster, to MinIO.
+#
+# A `Schedule` is a Backup factory: Velero stamps out one `Backup` object per tick, and each
+# one carries the template below. Deleting the Schedule stops the ticks; it does NOT delete
+# the backups already in the bucket (they expire on their own `ttl`).
+#
+# Applied by velero-up.sh. Nothing here depends on the lab: no domain, no IP — the object
+# store is reached through the in-cluster MinIO Service (see values.yaml).
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: daily-full
+  namespace: velero
+spec:
+  # 02:00 every day, in the VELERO SERVER's timezone (UTC unless the pod says otherwise) —
+  # not the workstation's. A cron in 5 fields here, unlike CloudNativePG's 6-field one.
+  schedule: "0 2 * * *"
+  # A missed tick (cluster down at 02:00) does NOT fire on startup: we would rather have a
+  # hole in the history than a surprise backup every time the lab comes up.
+  skipImmediately: true
+  template:
+    ttl: 168h                 # 7 days, then Velero's GC deletes objects AND tarball
+    storageLocation: default
+    # Whole cluster: every namespace, plus the cluster-scoped objects (CRDs, ClusterRoles,
+    # PVs, StorageClasses…). `velero` itself is included on purpose — restoring into a fresh
+    # cluster then needs `--exclude-namespaces velero`, see the README.
+    includedNamespaces:
+      - "*"
+    # The PV data follows the manifests: `defaultVolumesToFsBackup: true` (values.yaml) is a
+    # server-level default, repeated here so that reading THIS object tells the whole story.
+    defaultVolumesToFsBackup: true

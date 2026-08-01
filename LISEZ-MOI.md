@@ -332,7 +332,8 @@ cluster bootstrapé  (lab Talos ou lab kubeadm — nodes NotReady, pas encore de
               │             true (défaut) → self-signed/   openssl, AC locale
               │             false         → cert-manager/  Let's Encrypt DNS-01 Cloudflare
               │
-              └─ addons : stockage → bases → identité → secrets → observabilité → sécurité
+              └─ addons : stockage → sauvegarde → bases → identité → secrets
+                          → observabilité → sécurité
 ```
 
 C'est exactement l'ordre de `platform-up.sh` (`[1/4]` → `[4/4]`). Les deux modes TLS
@@ -385,6 +386,8 @@ d'environnement.
 | cert-manager | `jetstack/cert-manager` | `v1.21.1` | `platform-up.sh` | `CERT_MANAGER_VERSION` |
 | metrics-server | image `registry.k8s.io/…` | `v0.9.0` | `metric-server.yaml` | — |
 | Longhorn | `longhorn/longhorn` | `1.12.0` | `longhorn/longhorn-up.sh` | `LONGHORN_VERSION` |
+| Velero | `vmware-tanzu/velero` | `12.1.0` (app v1.18.1) | `velero/velero-up.sh` | `VELERO_VERSION` |
+| velero-plugin-for-aws | image `velero/velero-plugin-for-aws` | `v1.14.2` | `velero/velero-up.sh` | `VELERO_AWS_PLUGIN_VERSION` |
 | local-path-provisioner | image `rancher/…` | `v0.0.36` | `local-path-storage/local-path-storage.yaml` | — |
 | CloudNativePG | `cnpg/cloudnative-pg` | `0.29.0` (app 1.30.0) | `cloudnative-pg/cloudnative-pg-up.sh` | `CNPG_VERSION` |
 | Keycloak | `keycloak-k8s-resources` (opérateur **et** serveur) | `26.7.0` | `keycloak/keycloak-up.sh` | `KEYCLOAK_VERSION` |
@@ -434,6 +437,12 @@ d'environnement.
 | [`local-path-storage/`](local-path-storage/LISEZ-MOI.md) | stockage local dynamique (hostPath ; **chemin selon la distro**) | `./install.sh <distro> local-path` | `local-path` |
 | [`minio-s3/`](minio-s3/LISEZ-MOI.md) | stockage objet S3 + console, **1 nœud** | `./install.sh <distro> minio` | — |
 | [`minio-s3/cluster/`](minio-s3/cluster/LISEZ-MOI.md) | MinIO **distribué** 4 nœuds (EC:2) — cible des sauvegardes | `./install.sh <distro> minio-cluster` | — |
+
+### 🗃️ Sauvegarde
+
+| Dossier | Rôle | Commande | Prérequis |
+|---|---|---|---|
+| [`velero/`](velero/LISEZ-MOI.md) | sauvegarde/restauration des **objets** *et* des **données des PV** (Longhorn compris, via FSB/kopia) dans MinIO | `./install.sh <distro> velero` | un MinIO (`minio-cluster` ou `minio`) |
 
 ### 🐘 Bases de données
 

@@ -1,0 +1,79 @@
+# Velero Helm values tuned for the Talos / kubeadm labs.
+#
+# Two values here are SUBSTITUTED on the fly by velero-up.sh (same pattern as
+# cilium/cilium-l2.yml): the S3 endpoint — which MinIO is installed is not known in advance —
+# and the plugin tag, pinned in the script like every other version of this repository. What
+# you read below is the default that applies when you run `helm` by hand.
+
+# --- The object store plugin -------------------------------------------------
+# The Velero image ships NO provider plugin. Without this init container the `aws` provider
+# used by the BackupStorageLocation below simply does not exist, and the server loops on
+# `unable to locate ObjectStore plugin for aws`. The plugin binary is dropped into the shared
+# `plugins` emptyDir mounted at /target.
+# Version matrix: plugin v1.14.x <-> Velero v1.18.x (velero-plugin-for-aws README).
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.14.2
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: aws           # the S3 plugin above — MinIO speaks the same protocol
+      bucket: velero          # created by velero-up.sh (mc mb --ignore-existing)
+      default: true
+      config:
+        # MinIO has no notion of a region, but the AWS SDK REFUSES to sign a request without
+        # one: any non-empty value works, us-east-1 is MinIO's own default.
+        region: us-east-1
+        # MinIO serves a bucket as a PATH (minio:9000/velero), not as a subdomain
+        # (velero.minio:9000). Without this the SDK builds a hostname that resolves nowhere.
+        s3ForcePathStyle: "true"
+        # In-cluster Service: the backup traffic never leaves the pod network, so it depends
+        # on neither the Gateway, nor a LoadBalancer IP, nor DNS for *.<LAB_DOMAIN>.
+        s3Url: http://minio.minio-cluster.svc.cluster.local:9000
+
+  # THE setting that makes "the Longhorn PVs too" true without touching a single application:
+  # every pod volume is backed up by File System Backup, with no per-pod annotation. Opting a
+  # volume out stays possible pod by pod (see the README).
+  defaultVolumesToFsBackup: true
+  # kopia (the `velero server` default since 1.10) rather than restic: deduplicated,
+  # compressed, and the only one still receiving upstream work.
+  uploaderType: kopia
+  # 7 days — a lab is rebuilt often, and every byte lands on the workers' shared disk.
+  defaultBackupTTL: 168h
+
+# --- What we do NOT enable ---------------------------------------------------
+# No VolumeSnapshotLocation: taking a CSI snapshot would need the external-snapshotter
+# controller and a VolumeSnapshotClass, which this lab does not install — and a Longhorn
+# snapshot stays INSIDE Longhorn anyway, on the very disks we are protecting. FSB (below)
+# copies the bytes out to MinIO instead.
+snapshotsEnabled: false
+backupsEnabled: true
+
+# --- node-agent: the DaemonSet that reads and writes the volume data ---------
+# It reads a volume where the kubelet has ALREADY mounted it, hence the hostPath on the
+# kubelet's pod directory — which is also why the namespace has to be labelled `privileged`
+# (PodSecurity `baseline` forbids hostPath volumes; velero-up.sh applies the label).
+deployNodeAgent: true
+nodeAgent:
+  # Overridden by velero-up.sh with VELERO_POD_VOLUME_PATH (the distribution profile). Same
+  # value on both labs today — see lib/profiles/*.sh for why that is not a coincidence.
+  podVolumePath: /var/lib/kubelet/pods
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
+# --- Credentials -------------------------------------------------------------
+# The `velero-s3` Secret is created by velero-up.sh (OUTSIDE this file: it carries the MinIO
+# access key). Its single `cloud` key holds an AWS credentials file.
+credentials:
+  useSecret: true
+  existingSecret: velero-s3
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { memory: 1Gi }
