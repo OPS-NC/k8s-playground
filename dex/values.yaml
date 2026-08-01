@@ -119,7 +119,24 @@ config:
   staticClients:
     - id: kubernetes
       name: Kubernetes (kubectl oidc-login)
-      secret: $KUBERNETES_CLIENT_SECRET
+      # ⚠️ `secretEnv` AND NOT `secret: $KUBERNETES_CLIENT_SECRET`. Dex does NOT expand
+      #    environment variables here: it stored the literal 21-character string
+      #    `$KUBERNETES_CLIENT_SECRET` as the client's secret. The whole browser flow then works
+      #    — Keycloak authenticates, Dex logs `login successful ... groups=[k8s-admins]` — and
+      #    kubelogin dies on the LAST step, exchanging the code:
+      #        oauth2: "invalid_client" "Invalid client credentials."
+      #    with, on the Dex side, `invalid client_secret on token request client_id=kubernetes`.
+      #    Nothing points at the config: the value in the kubeconfig matches the Secret byte for
+      #    byte, and the upstream connector (which reads its own secret differently) is fine, so
+      #    everything suggests a Keycloak problem. Confirm it in one command — the literal string
+      #    is accepted as the password:
+      #        curl -d grant_type=authorization_code -d code=bogus -d client_id=kubernetes \
+      #             --data-urlencode 'client_secret=$KUBERNETES_CLIENT_SECRET' \
+      #             https://dex.<domain>/token
+      #        => invalid_grant (credentials OK, code bad) instead of invalid_client
+      #    `secretEnv` is Dex's dedicated field for exactly this, and it keeps the secret out of
+      #    the rendered ConfigMap/Secret as a bonus.
+      secretEnv: KUBERNETES_CLIENT_SECRET
       # kubelogin (`kubectl oidc-login`) opens a browser and listens locally on 8000: these two
       # URLs are the only valid ones. They stay `http` and on loopback — the case RFC 8252
       # foresees for a native application.
