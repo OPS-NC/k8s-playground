@@ -23,8 +23,8 @@
 
 | Prerequisite | Why | Check |
 |---|---|---|
-| Cluster bootstrapped with **`CNI=cilium`** (`./kubeadm/cluster-up.sh`, the default — `CNI=none` is equivalent here) | `kubeadm init` installs no CNI at all: Cilium takes that slot | `kubectl get nodes` → `NotReady` **before** the install, that is expected |
-| `_out/cluster.env` present | it carries the **detected** facts the script reads: `HOSTONLY_IF`, `POD_CIDR`, `VIP`, `KUBE_PROXY_REPLACEMENT` | `cat _out/cluster.env` |
+| Cluster bootstrapped with **`CNI=cilium`** (`./kubeadm/cluster-up.sh` or `./talos/cluster-up.sh`, the default of both — `CNI=none` is equivalent here) | neither bootstrap installs a CNI at all: Cilium takes that slot | `kubectl get nodes` → `NotReady` **before** the install, that is expected |
+| `_out/cluster.env` present *(kubeadm only)* | it carries the **detected** facts the script reads: `HOSTONLY_IF`, `POD_CIDR`, `VIP`, `KUBE_PROXY_REPLACEMENT`. On Talos there is no equivalent: those come from `lab.env` | `cat _out/cluster.env` |
 | A host-only interface (usually **`enp0s8`**) | source of the ARP announcement **and** of the VXLAN tunnels | `vagrant ssh k8s-cp1 -c 'ip -br a'` |
 | `kubectl` + `helm`, `KUBECONFIG` set | the script checks the binaries, then `/readyz` | `helm version` |
 
@@ -60,7 +60,7 @@ This is **the most distribution-dependent component** in the whole repository.
 | Helm value | Talos | kubeadm | Why |
 |---|---|---|---|
 | `ipam.mode` | `kubernetes` | `cluster-pool` | On Talos the kube-controller-manager already carves per-node `podCIDR`s and Cilium follows them. On kubeadm the Cilium operator owns the pool (hence `clusterPoolIPv4PodCIDRList` + `clusterPoolIPv4MaskSize=24`). |
-| `kubeProxyReplacement` | `false` (forced) | `KUBE_PROXY_REPLACEMENT`, default `true` | Talos always installs kube-proxy. On kubeadm, `kubeadm init` may have run with `--skip-phases=addon/kube-proxy`: Cilium must then take over in eBPF, and getting it wrong breaks **every** Service (CoreDNS included). |
+| `kubeProxyReplacement` | `KUBE_PROXY_REPLACEMENT`, default `true` | `KUBE_PROXY_REPLACEMENT`, default `true` | **Same variable, same default, on both.** Only the bootstrap differs: `cluster.proxy.disabled: true` in the Talos machine config (`talos/patch-no-kube-proxy.yaml`), `kubeadm init --skip-phases=addon/kube-proxy` on kubeadm. Either way there is then **no kube-proxy** and Cilium must take over in eBPF — getting the value wrong breaks **every** Service (CoreDNS included). |
 | `cgroup.autoMount.enabled` + `cgroup.hostRoot` | `false` + `/sys/fs/cgroup` (**required**) | not set | Talos already mounts cgroup2 and the pod cannot remount `/sys/fs/cgroup` (read-only). On Debian the chart handles it: forcing these would be **harmful**. |
 | `securityContext.capabilities.*` | explicit lists (**required**) | not set | Talos rejects the chart's implicit `privileged`. |
 | `devices` | `enp0s8` | `eth1`/`enp0s8`, **detected** in `_out/cluster.env` | Without pinning, Cilium picks the NAT NIC `10.0.2.15` — identical on every VM ⇒ broken cross-node traffic and DNS. |
@@ -89,8 +89,9 @@ kubectl get ds -A | grep -Ei 'cilium|flannel|calico'   # must be EMPTY (one CNI 
 ```bash
 # kubeadm: the FACTS live in _out/cluster.env (written by cluster-up.sh)
 grep -E 'HOSTONLY_IF|POD_CIDR|KUBE_PROXY_REPLACEMENT' ../Vagrant-KubeADM/_out/cluster.env
-# Talos: the pod CIDR is in the generated machine config
+# Talos: no cluster.env — lab.env is the source, and the machine config is the ground truth
 grep -A2 podSubnets ../Vagrant-Talos/_out/controlplane.yaml
+grep -A2 '^    proxy:' ../Vagrant-Talos/_out/controlplane.yaml   # disabled: true => no kube-proxy
 ```
 
 ### 3. Add the Helm repository
@@ -109,7 +110,7 @@ helm search repo cilium/cilium --versions | head -3      # check the latest stab
 helm upgrade --install cilium cilium/cilium -n kube-system --create-namespace \
   --version 1.20.0 \
   --set envoy.enabled=false \
-  --set kubeProxyReplacement=false \
+  --set kubeProxyReplacement=true \
   --set k8sServiceHost=192.168.56.5 --set k8sServicePort=6443 \
   --set routingMode=tunnel --set tunnelProtocol=vxlan \
   --set ipam.mode=kubernetes \
@@ -166,14 +167,15 @@ kubectl get ciliuml2announcementpolicy
 
 ```bash
 kubectl -n kube-system exec ds/cilium -- cilium-dbg status --verbose | head -30
-# kube-proxy replaced? (kubeadm with KUBE_PROXY_REPLACEMENT=true)
+# kube-proxy replaced? (either lab with KUBE_PROXY_REPLACEMENT=true: NotFound is expected)
 kubectl -n kube-system get ds kube-proxy 2>&1 | tail -1
 ```
 
 ## 🔧 What the script does
 
 1. **Reads `_out/cluster.env`** (then `lab.env` as a fallback): `HOSTONLY_IF`, `POD_CIDR`, `VIP`,
-   `KUBE_PROXY_REPLACEMENT` — detected facts, not guesses;
+   `KUBE_PROXY_REPLACEMENT` — detected facts on kubeadm, `lab.env` intents on Talos, which has
+   no `cluster.env`;
 2. **installs Cilium with Helm** in `kube-system` with the values below;
 3. **waits** for `condition=Ready` on every node (300 s max) — the CNI is what unblocks them;
 4. **applies `cilium-l2.yml`**: LoadBalancer IP pool + ARP announcement policy, with the pool
@@ -186,8 +188,8 @@ kubectl -n kube-system get ds kube-proxy 2>&1 | tail -1
 | `devices=<HOSTONLY_IF>` | **the key one**: pins the **host-only** NIC (read from `_out/cluster.env`, never hardcoded). Without it, Cilium picks the NIC carrying the default route (NAT `10.0.2.15`, identical on every VM) → unusable VTEP and ARP |
 | `routingMode=tunnel` + `tunnelProtocol=vxlan` | encapsulation between nodes. There is **no router** on the host-only network, so native routing would need a static route per node on the VirtualBox side: tunnelling avoids the whole problem |
 | `ipam.mode=cluster-pool` + `ipam.operator.clusterPoolIPv4PodCIDRList={<POD_CIDR>}` + `clusterPoolIPv4MaskSize=24` | ⚠️ **the trap**: the cluster-pool default is `10.0.0.0/8`, completely independent from the `podSubnet` declared to kubeadm. Without passing `POD_CIDR` back explicitly, kubeadm and Cilium do not talk about the same network |
-| `kubeProxyReplacement=<KUBE_PROXY_REPLACEMENT>` | `true` (default): `kubeadm init` ran with `--skip-phases=addon/kube-proxy`, there is **no kube-proxy at all** and Cilium serves the Services in eBPF. `false`: kube-proxy is there, Cilium sits on top |
-| `k8sServiceHost=<VIP>` + `k8sServicePort=6443` | **mandatory without kube-proxy**: nothing provisions the apiserver ClusterIP any more, so the agent cannot bootstrap through `kubernetes.default`. We point at the **keepalived VIP**, not at cp1's own IP: the VIP survives losing cp1, and it is the address already baked into the certificates |
+| `kubeProxyReplacement=<KUBE_PROXY_REPLACEMENT>` | `true` (the default of **both** labs): the bootstrap installed no kube-proxy — `kubeadm init --skip-phases=addon/kube-proxy`, or `cluster.proxy.disabled: true` in the Talos machine config — so there is **no kube-proxy at all** and Cilium serves the Services in eBPF. `false`: kube-proxy is there, Cilium sits on top |
+| `k8sServiceHost=<VIP>` + `k8sServicePort=6443` | **mandatory without kube-proxy**, hence on both labs by default: nothing provisions the apiserver ClusterIP any more, so the agent cannot bootstrap through `kubernetes.default`. We point at the **VIP** (keepalived on kubeadm, native on Talos), not at cp1's own IP: the VIP survives losing cp1, and it is the address already baked into the certificates. On Talos, Cilium's own docs suggest KubePrism (`localhost:7445`) instead — the VIP is kept here so both labs share one code path |
 | `l2announcements.enabled=true` | **enables** the controller that answers ARP; without it the `CiliumL2AnnouncementPolicy` is ignored |
 | `externalIPs.enabled=true` | support for Service `externalIPs` |
 | `envoy.enabled=false` | no need for Cilium's **embedded** Envoy: the lab uses the [`../envoy-gateway/`](../envoy-gateway/README.md) controller, a separate component |
@@ -232,8 +234,9 @@ kubectl -n kube-system exec ds/cilium -- cilium-dbg status --verbose
 kubectl -n kube-system exec ds/cilium -- cilium-dbg service list   # empty => no eBPF Services
 ```
 
-With `KUBE_PROXY_REPLACEMENT=true` there is **no `kube-proxy` DaemonSet** in `kube-system`, and
-that is the expected state — `cilium-dbg status` must report `KubeProxyReplacement: True`.
+With `KUBE_PROXY_REPLACEMENT=true` — the default of **both** labs — there is **no `kube-proxy`
+DaemonSet** in `kube-system`, and that is the expected state: `cilium-dbg status` must report
+`KubeProxyReplacement: True`.
 
 ## 🌐 Hubble UI
 
@@ -275,11 +278,13 @@ kubectl -n kube-system port-forward svc/hubble-ui 12000:80     # then http://loc
 - **`--set autoDirectNodeRoutes=true` (or `ipv4NativeRoutingCIDR`) is forbidden here**: those are
   **native routing** options, incompatible with tunnel mode. The agent exits `fatal`
   ("auto-direct-node-routes cannot be used with tunneling") and loops in `CrashLoopBackOff`.
-- **Replacing kube-proxy is decided at bootstrap, not here.** `KUBE_PROXY_REPLACEMENT=true` makes
-  `kubeadm/cluster-up.sh` run `kubeadm init --skip-phases=addon/kube-proxy`; this script then
-  reads the same value back from `_out/cluster.env`. Flipping only one of the two loses every
-  Service in the cluster. Changing your mind means rebuilding: `./kubeadm/cluster-reset.sh` then
-  `./kubeadm/cluster-up.sh`.
+- **Replacing kube-proxy is decided at bootstrap, not here — on both labs.**
+  `KUBE_PROXY_REPLACEMENT=true` makes `kubeadm/cluster-up.sh` run
+  `kubeadm init --skip-phases=addon/kube-proxy`, and `talos/cluster-up.sh` add
+  `talos/patch-no-kube-proxy.yaml` (`cluster.proxy.disabled: true`) to the generated machine
+  config. This script then reads the same value back — from `_out/cluster.env` on kubeadm, from
+  `lab.env` on Talos, where nothing detects it. Flipping only one of the two loses every Service
+  in the cluster. Changing your mind means rebuilding the cluster, not re-running this script.
 - **`k8sServiceHost` is not optional without kube-proxy.** Nothing provisions the
   `10.96.0.1` apiserver ClusterIP any more, so an agent that only knows `kubernetes.default`
   never connects and stays in `CrashLoopBackOff` on `Unable to contact k8s api-server`.

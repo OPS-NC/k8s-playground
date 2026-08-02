@@ -8,11 +8,11 @@
 #
 #   ./calico/calico-up.sh <talos|kubeadm>     (or ./install.sh <distro> calico)
 #
-# ⚠️ On kubeadm, INCOMPATIBLE with KUBE_PROXY_REPLACEMENT=true: only Cilium knows how to
-#    replace kube-proxy. `kubeadm/cluster-up.sh` already REFUSES to start on that pair, and
-#    this script re-checks it — a cluster with neither kube-proxy nor a replacement has no
-#    working ClusterIP left.
-#    (On Talos the question does not arise: kube-proxy is always installed at bootstrap.)
+# ⚠️ INCOMPATIBLE with KUBE_PROXY_REPLACEMENT=true, on BOTH labs: only Cilium knows how to
+#    replace kube-proxy. Both `cluster-up.sh` already REFUSE to start on that pair, and this
+#    script re-checks it — a cluster with neither kube-proxy nor a replacement has no working
+#    ClusterIP left. Since `true` is the DEFAULT of both labs, `CNI=calico` means you must
+#    also set `KUBE_PROXY_REPLACEMENT=false` in `lab.env`.
 #
 # ⚠️ SCOPE: this script installs the CNI, NOTHING ELSE.
 #    Calico brings the pod network, the routing and NetworkPolicies. It assigns and announces
@@ -76,9 +76,11 @@ fi
 # Calico does not replace kube-proxy (its eBPF dataplane could, but it is turned off here —
 # see installation.yaml). Without kube-proxy AND without a replacement no ClusterIP answers
 # any more: CoreDNS itself cannot reach the apiserver.
-# The KUBE_PROXY_REPLACEMENT=true + calico pair only exists on kubeadm (on Talos kube-proxy is
-# always installed at bootstrap): cluster-up.sh already refuses it, but lab.env may have been
-# edited since.
+# The KUBE_PROXY_REPLACEMENT=true + calico pair exists on both labs (it is the DEFAULT value on
+# both): each `cluster-up.sh` already refuses it, but lab.env may have been edited since.
+# Note the `false` fallback below is deliberate, and differs from the profile default: with no
+# lab.env at all we do not want to REFUSE a hand-built cluster that does have kube-proxy — the
+# DaemonSet check right after is the ground truth.
 if [ "$KUBE_PROXY_REPLACEABLE" = "true" ] && [ "$(read_param KUBE_PROXY_REPLACEMENT false)" = "true" ]; then
   fail "KUBE_PROXY_REPLACEMENT=true is INCOMPATIBLE with CNI=calico.
         Only Cilium knows how to replace kube-proxy in this lab. Pick either:
@@ -88,9 +90,9 @@ if [ "$KUBE_PROXY_REPLACEABLE" = "true" ] && [ "$(read_param KUBE_PROXY_REPLACEM
 fi
 if ! kubectl -n kube-system get daemonset/kube-proxy >/dev/null 2>&1; then
   fail "no kube-proxy DaemonSet in kube-system: this cluster runs without kube-proxy
-        (on kubeadm: \`kubeadm init --skip-phases=addon/kube-proxy\`, i.e.
-        KUBE_PROXY_REPLACEMENT=true). Calico cannot replace it — rebuild the cluster with
-        KUBE_PROXY_REPLACEMENT=false."
+        (KUBE_PROXY_REPLACEMENT=true — on kubeadm \`kubeadm init --skip-phases=addon/kube-proxy\`,
+        on Talos \`cluster.proxy.disabled: true\`). Calico cannot replace it — rebuild the
+        cluster with KUBE_PROXY_REPLACEMENT=false."
 fi
 
 # --- Guard rail: the Calico pool MUST cover the cluster's pod CIDR ----------

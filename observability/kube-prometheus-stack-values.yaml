@@ -125,9 +125,11 @@ kubeEtcd:
   serviceMonitor:
     scheme: http
 
-# kube-proxy: DISABLED because it DOES NOT EXIST. `KUBE_PROXY_REPLACEMENT=true` (the lab.env
-# default) runs `kubeadm init --skip-phases=addon/kube-proxy` and Cilium handles Services in
-# eBPF. The equivalent metrics come from Cilium (see cilium/).
+# kube-proxy: DISABLED because it DOES NOT EXIST — on EITHER lab.
+# `KUBE_PROXY_REPLACEMENT=true` is the `lab.env` default of both: `kubeadm init
+# --skip-phases=addon/kube-proxy` on kubeadm, `cluster.proxy.disabled: true` in the machine
+# config on Talos. Cilium handles Services in eBPF in both cases, and the equivalent metrics
+# come from Cilium (see cilium/).
 # Even with `KUBE_PROXY_REPLACEMENT=false`, kube-proxy only exposes its metrics on
 # 127.0.0.1:10249 until `metricsBindAddress` is opened.
 kubeProxy:

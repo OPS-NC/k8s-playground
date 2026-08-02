@@ -10,7 +10,7 @@
 #
 # Does three things (each one assumes the previous):
 #   1. Cilium through Helm: the CNI (=> nodes Ready), eBPF kube-proxy replacement per
-#      KUBE_PROXY_REPLACEMENT (kubeadm only), L2 announcement enabled, and the host-only
+#      KUBE_PROXY_REPLACEMENT (both labs, default `true`), L2 announcement enabled, and the host-only
 #      interface pinned (otherwise Cilium picks the 10.0.2.15 NAT card, identical on every VM
 #      => broken cross-node traffic and DNS).
 #   2. L2 pool: CiliumLoadBalancerIPPool (.200-.230) + CiliumL2AnnouncementPolicy (ARP).
@@ -19,10 +19,13 @@
 #      platform-up.sh that creates the route at step [2/4]. See the block at the end.
 #
 # Differences carried by the profile (lib/profiles/):
-#   - talos  : ipam.mode=kubernetes, kube-proxy kept, + the values Cilium REQUIRES on Talos
-#              (cgroup already mounted by the OS, explicit capabilities);
-#   - kubeadm: ipam.mode=cluster-pool (pod CIDR handed to the operator), kube-proxy
-#              replaceable in eBPF, chart defaults otherwise.
+#   - talos  : ipam.mode=kubernetes, + the values Cilium REQUIRES on Talos (cgroup already
+#              mounted by the OS, explicit capabilities);
+#   - kubeadm: ipam.mode=cluster-pool (pod CIDR handed to the operator), chart defaults
+#              otherwise.
+# kube-proxy is replaceable on BOTH labs (`KUBE_PROXY_REPLACEMENT`, default `true`): only the
+# bootstrap mechanism differs — `kubeadm init --skip-phases=addon/kube-proxy` on one side,
+# `cluster.proxy.disabled: true` in the machine config on the other.
 #
 # Called by platform-up.sh (step 1), but runnable on its own.
 # Idempotent: `helm upgrade --install` + `kubectl apply`.
@@ -39,11 +42,16 @@ CILIUM_VERSION="$(read_param CILIUM_VERSION 1.20.0)"
 LB_POOL_START="$(read_param LB_POOL_START 192.168.56.200)"
 LB_POOL_END="$(read_param LB_POOL_END 192.168.56.230)"
 
-# kube-proxy replacement: MUST reflect what was actually done at bootstrap.
-# kubeadm: `kubeadm init` ran with `--skip-phases=addon/kube-proxy` when the value is `true` —
-# there is then NO kube-proxy in the cluster and Cilium has to take over in eBPF. Getting this
-# value wrong breaks every Service in the cluster.
-# Talos: kube-proxy is always installed by the bootstrap → the profile forces `false`.
+# kube-proxy replacement: MUST reflect what was actually done at bootstrap. Both labs default
+# to `true`, and each disables kube-proxy its own way:
+#   kubeadm: `kubeadm init --skip-phases=addon/kube-proxy` (kubeadm/cluster-up.sh);
+#   talos  : `cluster.proxy.disabled: true` in the machine config
+#            (talos/patch-no-kube-proxy.yaml, added by talos/cluster-up.sh).
+# In both cases there is then NO kube-proxy in the cluster and Cilium has to take over in
+# eBPF. Getting this value wrong breaks every Service in the cluster, CoreDNS included — the
+# ground truth is `kubectl -n kube-system get ds kube-proxy`.
+# The `KUBE_PROXY_REPLACEABLE` switch is kept: a distribution that installs kube-proxy
+# unconditionally would set it to `false`, and the value below would be forced.
 if [ "$KUBE_PROXY_REPLACEABLE" = "true" ]; then
   KUBE_PROXY_REPLACEMENT="$(read_param KUBE_PROXY_REPLACEMENT "$DEFAULT_KUBE_PROXY_REPLACEMENT")"
   KUBE_PROXY_REPLACEMENT="$(printf '%s' "$KUBE_PROXY_REPLACEMENT" | tr '[:upper:]' '[:lower:]')"
@@ -60,6 +68,11 @@ fi
 #   - the VIP survives losing cp1 (VRRP/Talos moves it), cp1's IP does not;
 #   - it is already the address baked into the certificates and the kubeconfigs, so the only
 #     one the apiserver certificate is guaranteed to cover.
+# This is MANDATORY as soon as kube-proxy is gone (both labs, by default): nothing provisions
+# the apiserver ClusterIP any more, so the agent cannot bootstrap through `kubernetes.default`.
+# On Talos, Cilium's own docs suggest KubePrism instead (`localhost:7445`, enabled by default
+# in the generated config). We deliberately keep the VIP: one shared code path for both labs,
+# and it is the endpoint the whole lab already talks to.
 VIP="$(read_param VIP "$DEFAULT_VIP")"
 
 # The cluster's pod CIDR (kubeadm's `networking.podSubnet`, Talos'

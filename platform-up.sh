@@ -51,7 +51,8 @@ CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.21.1}"
 # kubeadm guard rail: without `_out/cluster.env` we fall back to GUESSED values. Better to say
 # so here than to let Cilium pin itself to the wrong network card three steps later. Not
 # blocking: a hand-built cluster stays usable through lab.env.
-# (On Talos that file does not exist: the facts are read from _out/controlplane.yaml.)
+# (On Talos that file does not exist: lab.env is the only source of CNI / KUBE_PROXY_REPLACEMENT,
+# and only the pod CIDR is read back from _out/controlplane.yaml, by calico-up.sh.)
 if [ "$K8S_DISTRO" = "kubeadm" ] && [ ! -f "$CLUSTER_ENV_FILE" ]; then
   warn "${CLUSTER_ENV_FILE} missing: ./kubeadm/cluster-up.sh was not run (or not all the way
     through). We carry on with lab.env and the defaults, but the host-only interface, the pod
@@ -140,12 +141,12 @@ HOSTONLY_IF="$(read_param HOSTONLY_IF "$DEFAULT_HOSTONLY_IF")"
 KUBE_PROXY_REPLACEMENT="$(read_param KUBE_PROXY_REPLACEMENT "$DEFAULT_KUBE_PROXY_REPLACEMENT")"
 KUBE_PROXY_REPLACEMENT="$(printf '%s' "$KUBE_PROXY_REPLACEMENT" | tr '[:upper:]' '[:lower:]')"
 
-# ⚠️ The forbidden pair (kubeadm only). With KUBE_PROXY_REPLACEMENT=true, `kubeadm init` ran
-# with `--skip-phases=addon/kube-proxy`: there is NO kube-proxy in the cluster at all. Only
-# Cilium knows how to replace it — with calico/flannel/none no ClusterIP would answer any more
-# (CoreDNS included). cluster-up.sh already refuses that pair at bootstrap; we re-check it
-# because lab.env may have been edited since, and the breakage would be unreadable.
-# On Talos kube-proxy is always installed by the bootstrap: the question does not arise.
+# ⚠️ The forbidden pair, on BOTH labs. With KUBE_PROXY_REPLACEMENT=true there is NO kube-proxy
+# in the cluster at all — `kubeadm init --skip-phases=addon/kube-proxy` on kubeadm,
+# `cluster.proxy.disabled: true` in the machine config on Talos. Only Cilium knows how to
+# replace it: with calico/flannel/none no ClusterIP would answer any more (CoreDNS included).
+# Both `cluster-up.sh` already refuse that pair at bootstrap; we re-check it because lab.env
+# may have been edited since, and the breakage would be unreadable.
 if [ "$KUBE_PROXY_REPLACEABLE" = "true" ] && [ "$KUBE_PROXY_REPLACEMENT" = "true" ] && [ "$CNI" != "cilium" ]; then
   fail "KUBE_PROXY_REPLACEMENT=true requires CNI=cilium (here CNI=${CNI}).
         Pick CNI=cilium, or KUBE_PROXY_REPLACEMENT=false + rebuild the cluster
@@ -353,9 +354,9 @@ case "$LB_ANNOUNCER" in
   none)    echo "  L2 announcer : NONE (METALLB=false) — no LoadBalancer IP, no reachable UI" ;;
 esac
 if [ "$KUBE_PROXY_REPLACEABLE" = "true" ]; then
-  echo "  kube-proxy   : $([ "$KUBE_PROXY_REPLACEMENT" = true ] && echo 'REPLACED by Cilium (eBPF)' || echo 'installed by kubeadm')"
+  echo "  kube-proxy   : $([ "$KUBE_PROXY_REPLACEMENT" = true ] && echo 'REPLACED by Cilium (eBPF)' || echo "installed by the ${K8S_DISTRO} bootstrap")"
 else
-  echo "  kube-proxy   : installed by Talos (not replaceable in this lab)"
+  echo "  kube-proxy   : installed by the ${K8S_DISTRO} bootstrap (not replaceable in this lab)"
 fi
 echo "  Nodes        : $(kubectl get nodes --no-headers | grep -c ' Ready ')/$(kubectl get nodes --no-headers | wc -l) Ready"
 echo "  Gateway      : $(kubectl -n envoy-gateway-system get gateway main-gateway -o jsonpath='{.status.addresses[0].value}' 2>/dev/null)"

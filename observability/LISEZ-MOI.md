@@ -80,7 +80,7 @@ Une seule différence, mais elle change ce que Prometheus voit
 | `kubeControllerManager` | **désactivé** | activé (`:10257`, HTTPS, `insecureSkipVerify`) | kubeadm pose `bind-address: 0.0.0.0` sur le pod statique ; sur Talos le composant n'est pas scrutable sans TLS dédié |
 | `kubeScheduler` | **désactivé** | activé (`:10259`) | idem |
 | `kubeEtcd` | **désactivé** | activé (`:2381`, `scheme: http`) | le lab kubeadm passe `listen-metrics-urls: http://0.0.0.0:2381` au bootstrap ; par défaut l'endpoint n'existe qu'en loopback |
-| `kubeProxy` | désactivé | désactivé | soit remplacé par Cilium (eBPF), soit métriques en `127.0.0.1:10249` |
+| `kubeProxy` | désactivé | désactivé | sur les deux : soit remplacé par Cilium (eBPF, le défaut), soit métriques en `127.0.0.1:10249` |
 
 Le fichier de values est **commun** (il porte le cas kubeadm) : `observability-up.sh` ajoute
 les `--set …enabled=false` sur Talos. Sans ce réglage, Prometheus afficherait des cibles
@@ -182,7 +182,7 @@ echo "Grafana : https://grafana.${LAB_DOMAIN}  (admin / prom-operator — À CHA
 | Fichier | Rôle |
 |---------|------|
 | `namespace.yaml` | ns `monitoring` en PodSecurity `privileged` |
-| `kube-prometheus-stack-values.yaml` | Prometheus (`retention: 2d`, PVC 3Gi `longhorn-r1`) + Grafana (PVC 1Gi + datasource Loki) + Alertmanager (emptyDir) ; controller-manager et scheduler **scrutés**, etcd et kube-proxy coupés (cf. ci-dessous) ; scrape **tous** les ServiceMonitor/PodMonitor |
+| `kube-prometheus-stack-values.yaml` | Prometheus (`retention: 2d`, PVC 3Gi `longhorn-r1`) + Grafana (PVC 1Gi + datasource Loki) + Alertmanager (emptyDir) ; controller-manager et scheduler **scrutés**, etcd coupé et kube-proxy coupé — il n'existe pas (cf. ci-dessous) ; scrape **tous** les ServiceMonitor/PodMonitor |
 | `loki-values.yaml` | Loki **SingleBinary** + filesystem sur PVC 3Gi `longhorn-r1` ; caches memcached **coupés** (sinon ~9 Go de RAM demandés) |
 | `alloy-values.yaml` | Alloy **DaemonSet, mode fichier** (`/var/log/pods`) → Loki ; **ne charge PAS l'apiserver** |
 | `httproutes.yaml` | 3 `HTTPRoute` HTTPS sur `main-gateway` (TLS wildcard déjà porté par l'écouteur) |
@@ -199,7 +199,7 @@ active donc **un par un**, jamais en bloc — pas question de livrer une cible m
 | `kubeControllerManager` | **on**, `:10257` HTTPS | `kubeadm/templates/kubeadm-init.yaml.tpl` lui pose `bind-address: 0.0.0.0`. `insecureSkipVerify: true` : le certificat servi est signé par la CA du cluster mais ne porte pas le nom DNS du Service. |
 | `kubeScheduler` | **on**, `:10259` HTTPS | idem. |
 | `kubeEtcd` | **off** | etcd *est* bien un pod statique empilé et expose *bien* `:2381`, mais kubeadm génère son manifeste avec `--listen-metrics-urls=http://127.0.0.1:2381` — **loopback uniquement**, ça sert la probe de liveness du pod. Pour l'ouvrir vraiment : ajouter `listen-metrics-urls: http://0.0.0.0:2381` à `etcd.local.extraArgs` dans `kubeadm/templates/kubeadm-init.yaml.tpl`, puis repasser `kubeEtcd.enabled: true` avec `service.port: 2381` et `serviceMonitor.scheme: http`. |
-| `kubeProxy` | **off** | il n'y a **pas de kube-proxy** : `KUBE_PROXY_REPLACEMENT=true` (défaut de `lab.env`) lance `kubeadm init --skip-phases=addon/kube-proxy` et Cilium prend les Services en eBPF. Les métriques équivalentes viennent de Cilium. |
+| `kubeProxy` | **off** | il n'y a **pas de kube-proxy**, sur aucun des deux labs : `KUBE_PROXY_REPLACEMENT=true` (défaut de `lab.env` des deux) lance `kubeadm init --skip-phases=addon/kube-proxy` sur kubeadm, et pose `cluster.proxy.disabled: true` dans la config machine sur Talos. Cilium prend les Services en eBPF, et les métriques équivalentes viennent de Cilium. |
 
 Les deux pods statiques portent les labels `component: kube-controller-manager` /
 `component: kube-scheduler` sur lesquels le Service headless du chart sélectionne : rien

@@ -52,7 +52,7 @@ The **first IP of the range** goes to `main-gateway` in both cases: `192.168.56.
 |---|---|---|
 | **`CNI != cilium`** | Cilium already announces these IPs; two announcers on one range is an ARP conflict | `sed -n 's/^CNI=//p' lab.env` |
 | A **working CNI**, nodes `Ready` | MetalLB is an ordinary workload: with no pod network the controller never gets an IP | `kubectl get nodes` → all `Ready` |
-| `kube-proxy` present | MetalLB does not replace it (and `KUBE_PROXY_REPLACEMENT=true` implies `CNI=cilium` anyway) | `kubectl -n kube-system get ds kube-proxy` |
+| `kube-proxy` present | MetalLB does not replace it. It is there by construction: `KUBE_PROXY_REPLACEMENT=true` implies `CNI=cilium`, which rules MetalLB out | `kubectl -n kube-system get ds kube-proxy` |
 | A host-only interface (`enp0s8`, or `eth1` on some kubeadm boxes) | source of the ARP announcement — **never** the NAT card | `cat _out/cluster.env` (kubeadm) |
 | `kubectl` + `helm`, `KUBECONFIG` set | the script checks the binaries, then `/readyz` | `helm version` |
 
@@ -89,7 +89,7 @@ selection. One thing genuinely differs, and it is admission.
 |---|---|---|---|
 | PodSecurity default | `baseline` **enforced cluster-wide** | no level enforced | The `speaker` runs on `hostNetwork` and adds `NET_RAW` — `baseline` forbids **both**. [`namespace.yaml`](namespace.yaml) is therefore **mandatory** on Talos and **documentation** on kubeadm. |
 | Host-only interface | always `enp0s8` | `eth1` or `enp0s8` depending on the box → **detected** into `_out/cluster.env` | `HOSTONLY_IF` covers both; the script substitutes it into `metallb-l2.yml`. |
-| `kube-proxy` | always installed by Talos | optional, but `KUBE_PROXY_REPLACEMENT=true` forces `CNI=cilium` | So MetalLB always finds a kube-proxy in front of it, on both labs. |
+| `kube-proxy` | optional, but `KUBE_PROXY_REPLACEMENT=true` forces `CNI=cilium` | same | MetalLB is only installed when the CNI is **not** Cilium, so `KUBE_PROXY_REPLACEMENT` is necessarily `false` there: MetalLB always finds a kube-proxy in front of it, on both labs. |
 | Likely CNI next to it | `calico`, or `flannel` **pre-installed at bootstrap** | `calico`, or `flannel` installed by `platform-up.sh` | No effect on MetalLB: it only ever sees `Ready` nodes and Services. |
 
 > ℹ️ No profile variable was added for this component: nothing here reads

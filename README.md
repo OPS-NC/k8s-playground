@@ -260,7 +260,7 @@ the install scripts never test the distribution through scattered `if`s, they re
 | **Filesystem** | immutable: `/` and `/usr` read-only, only `/var` is writable | ordinary, everything is writable | — |
 | **local-path-provisioner** | `/var/local-path-provisioner` | `/opt/local-path-provisioner` (upstream path) | `LOCAL_PATH_DIR` |
 | **iSCSI prerequisite (Longhorn)** | an **extension** (`iscsi-tools`) baked into the installer image (not fixable at runtime) + `rshared` kubelet mount via `talosctl patch mc` | a **package** (`open-iscsi`) installed by `provision.sh`; `/var/lib/longhorn` is an ordinary directory | `LONGHORN_PREP_REQUIRED` |
-| **kube-proxy** | always installed by the bootstrap, not replaceable here | **optional**: replaceable by Cilium in eBPF (`KUBE_PROXY_REPLACEMENT=true`, the lab default) | `KUBE_PROXY_REPLACEABLE` |
+| **kube-proxy** | **optional** — `cluster.proxy.disabled: true` in the machine config (`talos/patch-no-kube-proxy.yaml`) | **optional** — `kubeadm init --skip-phases=addon/kube-proxy` | `KUBE_PROXY_REPLACEABLE` |
 | **Cilium — IPAM** | `ipam.mode=kubernetes` (podCIDRs come from kube-controller-manager) | `ipam.mode=cluster-pool` (the Cilium operator carves the pod CIDR) | `CILIUM_IPAM_MODE` |
 | **Cilium — OS values** | `cgroup.autoMount=false` + `cgroup.hostRoot` + explicit capabilities (**required**) | none: the chart defaults are the right ones, forcing them would be **harmful** | `cilium_specific_sets()` |
 | **Calico** | `flexVolumePath: None` and CSI `None` **mandatory** (`/usr` is read-only) | same settings, but purely as a slim-down | (shared manifest) |
@@ -268,10 +268,17 @@ the install scripts never test the distribution through scattered `if`s, they re
 | **Trivy — "node" scanners** | **disabled**: the `node-collector` bind-mounts `/etc/systemd` → `read-only file system` | enabled: those paths exist and are readable | `TRIVY_NODE_COLLECTOR` |
 | **Prometheus — control plane** | etcd/scheduler/controller-manager monitors **off** (not scrapable without dedicated TLS) | **on**: `bind-address: 0.0.0.0` and `listen-metrics-urls` set at bootstrap | `KPS_SCRAPE_CONTROL_PLANE` |
 | **Host-only interface** | `enp0s8` | `eth1` or `enp0s8` depending on the box → **detected** into `_out/cluster.env` | `DEFAULT_HOSTONLY_IF` |
-| **Cluster facts** | `_out/controlplane.yaml` (`podSubnets`) | `_out/cluster.env` (CIDR, interface, kube-proxy) | — |
+| **Cluster facts** | none detected: `lab.env` is the source, only `podSubnets` is read back from `_out/controlplane.yaml` | `_out/cluster.env` — values **detected** on the cluster (CIDR, interface, kube-proxy) | — |
 | **Demo Vault KV mount** | `talos-lab/` | `kubeadm-lab/` | `VAULT_KV_MOUNT` |
 | **Self-signed CA** | `O=Vagrant-Talos lab` | `O=Vagrant-KubeADM lab` | `CA_ORG`, `CA_FILE_NAME` |
 | **API-server OIDC flags (`dex/`)** | `talosctl patch mc` — **the machine configuration is an API**; `extraArgs` is a map | `kubeadm-config` ConfigMap + `kubeadm init phase` **on each control plane**; `extraArgs` is a list of `{name, value}` (v1beta4) | `APISERVER_OIDC_PATCH`, `APISERVER_OIDC_MECHANISM`, `apiserver_oidc_commands()` |
+
+> ℹ️ **kube-proxy: same outcome, two mechanisms.** Both labs default to
+> `KUBE_PROXY_REPLACEMENT=true`, so on both the reference cluster runs with **no kube-proxy at
+> all** and Cilium serves the Services in eBPF. Only the way the bootstrap drops it differs —
+> a `kubeadm init` phase to skip on one side, a machine-config field on the other. The value is
+> decided **at bootstrap**: it is not a runtime toggle, and `KUBE_PROXY_REPLACEMENT=true`
+> requires `CNI=cilium` on both (nothing else here replaces kube-proxy).
 
 Everything else — Argo CD, Kyverno, MinIO, CloudNativePG, Vault, Envoy Gateway, cert-manager,
 chaoskube, node-problem-detector, WordPress — is **strictly identical** on both distributions.

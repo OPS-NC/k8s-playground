@@ -70,7 +70,7 @@ même interface que Cilium aurait utilisées. Voir
 |---|---|---|
 | Cluster bootstrapé **sans CNI** (`CNI=calico` dans `lab.env`, puis `./kubeadm/cluster-up.sh` ou `./talos/cluster-up.sh`) | `kubeadm init` n'installe jamais de réseau pod : Calico prend la place | `kubectl get nodes` → tous `NotReady` **avant** l'install, c'est normal |
 | **Aucun autre CNI présent** | deux CNI se disputent `/etc/cni/net.d` et les routes ; pas de retour en arrière propre | le script refuse de tourner s'il voit un DaemonSet `cilium` ou `flannel` dans n'importe quel namespace |
-| **`KUBE_PROXY_REPLACEMENT=false`** | ⚠️ seul Cilium sait remplacer kube-proxy ici. `kubeadm/cluster-up.sh` refuse net le couple `calico` + `true`, et ce script le revérifie : sans kube-proxy ET sans remplaçant, plus aucune ClusterIP ne répond | `kubectl -n kube-system get ds/kube-proxy` |
+| **`KUBE_PROXY_REPLACEMENT=false`** — et ce n'est **pas** le défaut | ⚠️ seul Cilium sait remplacer kube-proxy ici. **Les deux** `cluster-up.sh` refusent net le couple `calico` + `true`, et ce script le revérifie : sans kube-proxy ET sans remplaçant, plus aucune ClusterIP ne répond. Comme `true` est le défaut des deux labs, `CNI=calico` impose de poser explicitement `false` | `kubectl -n kube-system get ds/kube-proxy` |
 | `podSubnet` de kubeadm == CIDR de l'`IPPool` | sinon kubelet alloue des IP de pod que Calico n'a pas programmées | `grep POD_CIDR _out/cluster.env` → `10.244.0.0/16` |
 | Adresse host-only sur chaque node | source de l'autodétection d'adresse Calico | `kubectl get nodes -o wide` → `INTERNAL-IP` en `192.168.56.x` |
 | `kubectl` + `helm`, `KUBECONFIG` posé | le script vérifie les binaires puis `/readyz` | `helm version` |
@@ -112,7 +112,7 @@ statut selon la distribution :
 | `flexVolumePath: None` | **OBLIGATOIRE** : sans lui l'opérateur monte `/usr/libexec/kubernetes/…` en `DirectoryOrCreate`, or `/usr` est en LECTURE SEULE ⇒ le pod `calico-node` ne démarre jamais | simple allègement (FlexVolume est déprécié depuis K8s 1.23 et inutilisé ici) |
 | `kubeletVolumePluginPath: None` (CSI coupé) | **OBLIGATOIRE** (guide officiel Sidero « Deploy Calico CNI ») | allègement : un DaemonSet de moins par node |
 | Labels PodSecurity `privileged` sur `tigera-operator` | **indispensables** (défaut cluster `baseline`) | documentation d'intention (aucun niveau appliqué) |
-| Garde-fou `KUBE_PROXY_REPLACEMENT=true` interdit | sans objet (kube-proxy toujours posé) | **vérifié** : Calico ne remplace pas kube-proxy |
+| Garde-fou `KUBE_PROXY_REPLACEMENT=true` interdit | **vérifié** : Calico ne remplace pas kube-proxy | **vérifié** : même garde-fou, même raison |
 | Détection du CIDR pod du cluster | `_out/controlplane.yaml` (`podSubnets`) | `_out/cluster.env` (`POD_CIDR`) |
 
 Le dataplane eBPF de Calico reste coupé sur les deux : il exige `bpfNetworkBootstrap` +
@@ -198,7 +198,7 @@ kubectl -n envoy-gateway-system get svc       # EXTERNAL-IP <pending> : ATTENDU 
 ## 🔧 Ce que fait le script
 
 1. **Garde-fous** : binaires, `/readyz`, refus si un autre CNI est déjà là, refus si kube-proxy
-   est absent (`KUBE_PROXY_REPLACEMENT=true`), et refus si `POD_CIDR` diverge du `POD_CIDR`
+   est absent (`KUBE_PROXY_REPLACEMENT=true`, le défaut des deux labs), et refus si `POD_CIDR` diverge du `POD_CIDR`
    enregistré dans `_out/cluster.env`.
 2. **[`namespace.yaml`](namespace.yaml)** — le namespace `tigera-operator`, créé **avant** le
    chart parce qu'il porte les labels PodSecurity `privileged`. Le `--create-namespace` de Helm
@@ -245,7 +245,7 @@ ensure CRDs are installed first
 | `ipPools[0].cidr` | `10.244.0.0/16` | identique au `podSubnet` de kubeadm |
 | `ipPools[0].encapsulation` | `VXLAN` | encapsulation inconditionnelle ; `VXLANCrossSubnet` retomberait sur du routage direct entre nodes du même `/24`, ce qui suppose que le commutateur host-only relaie des paquets à IP source « de pod » — non vérifié. Même choix que flannel et Cilium |
 | `calicoNetwork.bgp` | `Disabled` | pas de pair BGP sur un host-only ⇒ BIRD ne sert à rien (et donc pas d'annonce d'IP de service) |
-| `calicoNetwork.linuxDataplane` | `Iptables` | on garde le kube-proxy posé par `kubeadm init` — d'où le `KUBE_PROXY_REPLACEMENT=false` obligatoire |
+| `calicoNetwork.linuxDataplane` | `Iptables` | on garde le kube-proxy posé par le bootstrap — d'où le `KUBE_PROXY_REPLACEMENT=false` obligatoire, sur les deux labs |
 | `calicoNetwork.mtu` | `1450` | 1500 (host-only) − 50 (entêtes VXLAN IPv4) |
 | `kubeletVolumePluginPath` | `None` | **allègement du lab** : coupe le driver CSI Calico (et son DaemonSet `csi-node-driver` par node). Il ne sert qu'aux volumes éphémères de flow logs, inutilisés ici |
 | `flexVolumePath` | `None` | **allègement du lab** : sans ça l'opérateur ajoute un init-container `flexvol-driver` qui monte `/usr/libexec/kubernetes/kubelet-plugins/volume/exec/`. FlexVolume est déprécié depuis Kubernetes 1.23 et n'alimente ici que Dikastes (policy L7), inutilisé |

@@ -268,7 +268,7 @@ des variables.
 | **Système de fichiers** | immuable : `/` et `/usr` en lecture seule, seul `/var` est inscriptible | ordinaire, tout est inscriptible | — |
 | **local-path-provisioner** | `/var/local-path-provisioner` | `/opt/local-path-provisioner` (chemin amont) | `LOCAL_PATH_DIR` |
 | **Prérequis iSCSI (Longhorn)** | **extension** `iscsi-tools` cuite dans l'image d'install (irrécupérable à chaud) + montage kubelet `rshared` via `talosctl patch mc` | **paquet** `open-iscsi` posé par `provision.sh` ; `/var/lib/longhorn` est un dossier ordinaire | `LONGHORN_PREP_REQUIRED` |
-| **kube-proxy** | toujours posé par le bootstrap, non remplaçable ici | **optionnel** : remplaçable par Cilium en eBPF (`KUBE_PROXY_REPLACEMENT=true`, défaut du lab) | `KUBE_PROXY_REPLACEABLE` |
+| **kube-proxy** | **optionnel** — `cluster.proxy.disabled: true` dans la config machine (`talos/patch-no-kube-proxy.yaml`) | **optionnel** — `kubeadm init --skip-phases=addon/kube-proxy` | `KUBE_PROXY_REPLACEABLE` |
 | **Cilium — IPAM** | `ipam.mode=kubernetes` (podCIDR posés par le kube-controller-manager) | `ipam.mode=cluster-pool` (l'opérateur Cilium découpe le CIDR pod) | `CILIUM_IPAM_MODE` |
 | **Cilium — valeurs OS** | `cgroup.autoMount=false` + `cgroup.hostRoot` + capabilities explicites (**exigés**) | aucune : les défauts du chart sont les bons, les forcer serait **nuisible** | `cilium_specific_sets()` |
 | **Calico** | `flexVolumePath: None` et CSI `None` **obligatoires** (`/usr` en lecture seule) | mêmes réglages, mais comme simple allègement | (manifeste commun) |
@@ -276,10 +276,18 @@ des variables.
 | **Trivy — scanners « node »** | **désactivés** : le `node-collector` bind-monte `/etc/systemd` → `read-only file system` | activés : les chemins existent et sont lisibles | `TRIVY_NODE_COLLECTOR` |
 | **Prometheus — control plane** | moniteurs etcd/scheduler/controller-manager **coupés** (non scrutables sans TLS dédié) | **activés** : `bind-address: 0.0.0.0` et `listen-metrics-urls` posés au bootstrap | `KPS_SCRAPE_CONTROL_PLANE` |
 | **Interface host-only** | `enp0s8` | `eth1` ou `enp0s8` selon la box → **détectée** dans `_out/cluster.env` | `DEFAULT_HOSTONLY_IF` |
-| **Faits du cluster** | `_out/controlplane.yaml` (`podSubnets`) | `_out/cluster.env` (CIDR, interface, kube-proxy) | — |
+| **Faits du cluster** | aucun fait détecté : `lab.env` est la source, seul `podSubnets` est relu dans `_out/controlplane.yaml` | `_out/cluster.env` — valeurs **détectées** sur le cluster (CIDR, interface, kube-proxy) | — |
 | **Moteur KV Vault de démo** | `talos-lab/` | `kubeadm-lab/` | `VAULT_KV_MOUNT` |
 | **AC auto-signée** | `O=Vagrant-Talos lab` | `O=Vagrant-KubeADM lab` | `CA_ORG`, `CA_FILE_NAME` |
 | **Flags OIDC de l'apiserver (`dex/`)** | `talosctl patch mc` — **la configuration machine est une API** ; `extraArgs` est une map | ConfigMap `kubeadm-config` + `kubeadm init phase` **sur chaque control plane** ; `extraArgs` est une liste de `{name, value}` (v1beta4) | `APISERVER_OIDC_PATCH`, `APISERVER_OIDC_MECHANISM`, `apiserver_oidc_commands()` |
+
+> ℹ️ **kube-proxy : même résultat, deux mécanismes.** Les deux labs ont
+> `KUBE_PROXY_REPLACEMENT=true` par défaut : sur les deux, le cluster de référence tourne
+> **sans aucun kube-proxy** et Cilium sert les Services en eBPF. Seule la façon dont le
+> bootstrap s'en passe diffère — une phase `kubeadm init` à sauter d'un côté, un champ de
+> configuration machine de l'autre. La valeur se décide **au bootstrap** : ce n'est pas un
+> interrupteur à chaud, et `KUBE_PROXY_REPLACEMENT=true` exige `CNI=cilium` sur les deux (rien
+> d'autre ici ne remplace kube-proxy).
 
 Tout le reste — Argo CD, Kyverno, MinIO, CloudNativePG, Vault, Envoy Gateway, cert-manager,
 chaoskube, node-problem-detector, WordPress — est **strictement identique** sur les deux

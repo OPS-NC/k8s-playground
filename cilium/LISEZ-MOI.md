@@ -22,8 +22,8 @@
 
 | Prérequis | Pourquoi | Vérifier |
 |---|---|---|
-| Cluster bootstrapé avec **`CNI=cilium`** (`./kubeadm/cluster-up.sh`, le défaut — `CNI=none` est équivalent ici) | `kubeadm init` n'installe aucun CNI : c'est Cilium qui prend la place | `kubectl get nodes` → `NotReady` **avant** l'install, c'est normal |
-| `_out/cluster.env` présent | il porte les faits **détectés** que lit le script : `HOSTONLY_IF`, `POD_CIDR`, `VIP`, `KUBE_PROXY_REPLACEMENT` | `cat _out/cluster.env` |
+| Cluster bootstrapé avec **`CNI=cilium`** (`./kubeadm/cluster-up.sh` ou `./talos/cluster-up.sh`, le défaut des deux — `CNI=none` est équivalent ici) | aucun des deux bootstraps n'installe de CNI : c'est Cilium qui prend la place | `kubectl get nodes` → `NotReady` **avant** l'install, c'est normal |
+| `_out/cluster.env` présent *(kubeadm seulement)* | il porte les faits **détectés** que lit le script : `HOSTONLY_IF`, `POD_CIDR`, `VIP`, `KUBE_PROXY_REPLACEMENT`. Sur Talos il n'y a pas d'équivalent : ces valeurs viennent de `lab.env` | `cat _out/cluster.env` |
 | Une interface host-only (en général **`enp0s8`**) | source de l'annonce ARP **et** des tunnels VXLAN | `vagrant ssh k8s-cp1 -c 'ip -br a'` |
 | `kubectl` + `helm`, `KUBECONFIG` posé | le script vérifie les binaires puis `/readyz` | `helm version` |
 
@@ -59,7 +59,7 @@ C'est **le composant le plus dépendant de la distribution** de tout le dépôt.
 | Valeur Helm | Talos | kubeadm | Pourquoi |
 |---|---|---|---|
 | `ipam.mode` | `kubernetes` | `cluster-pool` | Sur Talos, le kube-controller-manager découpe déjà les `podCIDR` par node et Cilium les suit. Sur kubeadm, l'opérateur Cilium gère le pool (d'où `clusterPoolIPv4PodCIDRList` + `clusterPoolIPv4MaskSize=24`). |
-| `kubeProxyReplacement` | `false` (forcé) | `KUBE_PROXY_REPLACEMENT`, défaut `true` | Talos pose toujours kube-proxy. Sur kubeadm, `kubeadm init` a pu tourner avec `--skip-phases=addon/kube-proxy` : Cilium doit alors le remplacer en eBPF, et se tromper de valeur casse **tous** les Services (CoreDNS compris). |
+| `kubeProxyReplacement` | `KUBE_PROXY_REPLACEMENT`, défaut `true` | `KUBE_PROXY_REPLACEMENT`, défaut `true` | **Même variable, même défaut, des deux côtés.** Seul le bootstrap diffère : `cluster.proxy.disabled: true` dans la config machine Talos (`talos/patch-no-kube-proxy.yaml`), `kubeadm init --skip-phases=addon/kube-proxy` sur kubeadm. Dans les deux cas il n'y a plus **aucun kube-proxy** et Cilium doit le remplacer en eBPF — se tromper de valeur casse **tous** les Services (CoreDNS compris). |
 | `cgroup.autoMount.enabled` + `cgroup.hostRoot` | `false` + `/sys/fs/cgroup` (**exigés**) | non posés | Talos monte déjà cgroup2, et le pod ne peut pas remonter `/sys/fs/cgroup` (lecture seule). Sur Debian le chart s'en charge : forcer ces valeurs y serait **nuisible**. |
 | `securityContext.capabilities.*` | listes explicites (**exigées**) | non posées | Talos refuse le `privileged` implicite du chart. |
 | `devices` | `enp0s8` | `eth1`/`enp0s8`, **détecté** dans `_out/cluster.env` | Sans épinglage, Cilium prend la carte NAT `10.0.2.15` — identique sur toutes les VM ⇒ trafic cross-node et DNS cassés. |
@@ -88,8 +88,9 @@ kubectl get ds -A | grep -Ei 'cilium|flannel|calico'   # doit être VIDE (un seu
 ```bash
 # kubeadm : les FAITS sont dans _out/cluster.env (écrit par cluster-up.sh)
 grep -E 'HOSTONLY_IF|POD_CIDR|KUBE_PROXY_REPLACEMENT' ../Vagrant-KubeADM/_out/cluster.env
-# Talos : le CIDR pod est dans la config machine générée
+# Talos : pas de cluster.env — lab.env est la source, et la config machine est la vérité
 grep -A2 podSubnets ../Vagrant-Talos/_out/controlplane.yaml
+grep -A2 '^    proxy:' ../Vagrant-Talos/_out/controlplane.yaml   # disabled: true => pas de kube-proxy
 ```
 
 ### 3. Ajouter le dépôt Helm
@@ -108,7 +109,7 @@ helm search repo cilium/cilium --versions | head -3      # vérifier la dernièr
 helm upgrade --install cilium cilium/cilium -n kube-system --create-namespace \
   --version 1.20.0 \
   --set envoy.enabled=false \
-  --set kubeProxyReplacement=false \
+  --set kubeProxyReplacement=true \
   --set k8sServiceHost=192.168.56.5 --set k8sServicePort=6443 \
   --set routingMode=tunnel --set tunnelProtocol=vxlan \
   --set ipam.mode=kubernetes \
@@ -165,14 +166,15 @@ kubectl get ciliuml2announcementpolicy
 
 ```bash
 kubectl -n kube-system exec ds/cilium -- cilium-dbg status --verbose | head -30
-# kube-proxy remplacé ? (kubeadm avec KUBE_PROXY_REPLACEMENT=true)
+# kube-proxy remplacé ? (les deux labs avec KUBE_PROXY_REPLACEMENT=true : NotFound est normal)
 kubectl -n kube-system get ds kube-proxy 2>&1 | tail -1
 ```
 
 ## 🔧 Ce que fait le script
 
 1. **Lit `_out/cluster.env`** (puis `lab.env` en repli) : `HOSTONLY_IF`, `POD_CIDR`, `VIP`,
-   `KUBE_PROXY_REPLACEMENT` — des faits détectés, pas devinés ;
+   `KUBE_PROXY_REPLACEMENT` — des faits détectés sur kubeadm, des intentions de `lab.env` sur
+   Talos, qui n'a pas de `cluster.env` ;
 2. **installe Cilium en Helm** dans `kube-system` avec les valeurs ci-dessous ;
 3. **attend** `condition=Ready` sur tous les nodes (300 s max) — c'est le CNI qui les débloque ;
 4. **applique `cilium-l2.yml`** : pool d'IP LoadBalancer + politique d'annonce ARP, avec la plage
@@ -185,8 +187,8 @@ kubectl -n kube-system get ds kube-proxy 2>&1 | tail -1
 | `devices=<HOSTONLY_IF>` | **le point clé** : épingle la carte **host-only** (lue dans `_out/cluster.env`, jamais codée en dur). Sans ça, Cilium prend la carte de la route par défaut (NAT `10.0.2.15`, identique sur chaque VM) → VTEP et ARP inutilisables |
 | `routingMode=tunnel` + `tunnelProtocol=vxlan` | encapsulation entre nodes. Il n'y a **aucun routeur** sur le réseau host-only : le routage natif exigerait une route statique par node côté VirtualBox, le tunnel supprime le problème |
 | `ipam.mode=cluster-pool` + `ipam.operator.clusterPoolIPv4PodCIDRList={<POD_CIDR>}` + `clusterPoolIPv4MaskSize=24` | ⚠️ **le piège** : le défaut de cluster-pool est `10.0.0.0/8`, sans aucun rapport avec le `podSubnet` déclaré à kubeadm. Si on ne repasse pas `POD_CIDR` explicitement, kubeadm et Cilium ne parlent pas du même réseau |
-| `kubeProxyReplacement=<KUBE_PROXY_REPLACEMENT>` | `true` (défaut) : `kubeadm init` a tourné avec `--skip-phases=addon/kube-proxy`, il n'y a **aucun kube-proxy** et Cilium sert les Services en eBPF. `false` : kube-proxy est là, Cilium se pose par-dessus |
-| `k8sServiceHost=<VIP>` + `k8sServicePort=6443` | **obligatoire sans kube-proxy** : plus rien ne provisionne la ClusterIP de l'apiserver, l'agent ne peut donc pas s'amorcer via `kubernetes.default`. On vise la **VIP keepalived**, pas l'IP propre de cp1 : la VIP survit à la perte de cp1, et c'est l'adresse déjà figée dans les certificats |
+| `kubeProxyReplacement=<KUBE_PROXY_REPLACEMENT>` | `true` (défaut des **deux** labs) : le bootstrap n'a posé aucun kube-proxy — `kubeadm init --skip-phases=addon/kube-proxy`, ou `cluster.proxy.disabled: true` dans la config machine Talos — il n'y a donc **aucun kube-proxy** et Cilium sert les Services en eBPF. `false` : kube-proxy est là, Cilium se pose par-dessus |
+| `k8sServiceHost=<VIP>` + `k8sServicePort=6443` | **obligatoire sans kube-proxy**, donc sur les deux labs par défaut : plus rien ne provisionne la ClusterIP de l'apiserver, l'agent ne peut donc pas s'amorcer via `kubernetes.default`. On vise la **VIP** (keepalived sur kubeadm, native sur Talos), pas l'IP propre de cp1 : la VIP survit à la perte de cp1, et c'est l'adresse déjà figée dans les certificats. Sur Talos, la doc de Cilium suggère plutôt KubePrism (`localhost:7445`) — on garde la VIP pour que les deux labs partagent un seul chemin de code |
 | `l2announcements.enabled=true` | **active** le contrôleur qui répond à l'ARP ; sans lui la `CiliumL2AnnouncementPolicy` est ignorée |
 | `externalIPs.enabled=true` | prise en charge des `externalIPs` de Services |
 | `envoy.enabled=false` | pas besoin de l'Envoy **embarqué** de Cilium : le lab utilise le contrôleur [`../envoy-gateway/`](../envoy-gateway/LISEZ-MOI.md), un composant distinct |
@@ -232,8 +234,9 @@ kubectl -n kube-system exec ds/cilium -- cilium-dbg status --verbose
 kubectl -n kube-system exec ds/cilium -- cilium-dbg service list   # vide => aucun Service eBPF
 ```
 
-Avec `KUBE_PROXY_REPLACEMENT=true` il n'y a **aucun DaemonSet `kube-proxy`** dans `kube-system`,
-et c'est l'état attendu — `cilium-dbg status` doit afficher `KubeProxyReplacement: True`.
+Avec `KUBE_PROXY_REPLACEMENT=true` — le défaut des **deux** labs — il n'y a **aucun DaemonSet
+`kube-proxy`** dans `kube-system`, et c'est l'état attendu : `cilium-dbg status` doit afficher
+`KubeProxyReplacement: True`.
 
 ## 🌐 Hubble UI
 
@@ -277,11 +280,13 @@ kubectl -n kube-system port-forward svc/hubble-ui 12000:80     # puis http://loc
 - **`--set autoDirectNodeRoutes=true` (ou `ipv4NativeRoutingCIDR`) est interdit ici** : ce sont
   des options de **routage natif**, incompatibles avec le mode tunnel. L'agent sort en `fatal`
   (« auto-direct-node-routes cannot be used with tunneling ») et boucle en `CrashLoopBackOff`.
-- **Le remplacement de kube-proxy se décide au bootstrap, pas ici.** `KUBE_PROXY_REPLACEMENT=true`
-  fait lancer à `kubeadm/cluster-up.sh` un `kubeadm init --skip-phases=addon/kube-proxy` ; ce
-  script relit ensuite la même valeur dans `_out/cluster.env`. N'en changer qu'un des deux fait
-  perdre TOUS les Services du cluster. Changer d'avis = reconstruire :
-  `./kubeadm/cluster-reset.sh` puis `./kubeadm/cluster-up.sh`.
+- **Le remplacement de kube-proxy se décide au bootstrap, pas ici — sur les deux labs.**
+  `KUBE_PROXY_REPLACEMENT=true` fait lancer à `kubeadm/cluster-up.sh` un
+  `kubeadm init --skip-phases=addon/kube-proxy`, et fait ajouter à `talos/cluster-up.sh` le patch
+  `talos/patch-no-kube-proxy.yaml` (`cluster.proxy.disabled: true`) dans la config machine
+  générée. Ce script relit ensuite la même valeur — dans `_out/cluster.env` sur kubeadm, dans
+  `lab.env` sur Talos, où rien ne la détecte. N'en changer qu'un des deux fait perdre TOUS les
+  Services du cluster. Changer d'avis = reconstruire le cluster, pas relancer ce script.
 - **`k8sServiceHost` n'est pas optionnel sans kube-proxy.** Plus rien ne provisionne la ClusterIP
   `10.96.0.1` de l'apiserver : un agent qui ne connaît que `kubernetes.default` ne se connecte
   jamais et boucle en `CrashLoopBackOff` sur `Unable to contact k8s api-server`.

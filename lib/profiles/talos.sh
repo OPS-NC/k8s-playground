@@ -32,9 +32,17 @@ CLUSTER_RESET_HINT="vagrant destroy && vagrant up && ./talos/cluster-up.sh"
 DEFAULT_HOSTONLY_IF="enp0s8"
 # Pod CIDR: `cluster.network.podSubnets` of the machine config (Talos AND lab default).
 DEFAULT_POD_CIDR="10.244.0.0/16"
-# kube-proxy is ALWAYS installed by Talos in this lab: we do not replace it.
-KUBE_PROXY_REPLACEABLE=false
-DEFAULT_KUBE_PROXY_REPLACEMENT="false"
+# kube-proxy is OPTIONAL, exactly as on kubeadm: `KUBE_PROXY_REPLACEMENT=true` (the lab
+# default) makes talos/cluster-up.sh add `talos/patch-no-kube-proxy.yaml`
+# (`cluster.proxy.disabled: true`) to the generated machine config, so the Talos bootstrap
+# renders NO kube-proxy manifest and Cilium serves the Services in eBPF.
+# ⚠️ On Talos this value is an INTENT read from `lab.env` — there is no `_out/cluster.env`
+#    here to turn it into a detected fact. It MUST match what the bootstrap actually did:
+#    the ground truth is `kubectl -n kube-system get ds kube-proxy` (or `cluster.proxy` in
+#    `_out/controlplane.yaml`). Same hazard as `CNI`, and the same rule — it is decided at
+#    bootstrap, never switched live.
+KUBE_PROXY_REPLACEABLE=true
+DEFAULT_KUBE_PROXY_REPLACEMENT="true"
 DEFAULT_VIP="192.168.56.5"               # apiserver VIP (see talos/patch-cp.yaml)
 # flannel: with CNI=flannel, Talos ALREADY installed it at bootstrap — the platform layer has
 # nothing to lay down.
@@ -88,9 +96,10 @@ PODSECURITY_DEFAULT="baseline (enforced cluster-wide)"
 TRIVY_NODE_COLLECTOR=false
 
 # --- Observability -----------------------------------------------------------
-# etcd, scheduler, controller-manager and kube-proxy expose no scrapable metrics without
-# dedicated TLS configuration on Talos → monitors disabled, to avoid unexplainable "down"
-# targets during training.
+# etcd, scheduler and controller-manager expose no scrapable metrics without dedicated TLS
+# configuration on Talos → monitors disabled, to avoid unexplainable "down" targets during
+# training. kube-proxy is out of the picture anyway (absent when Cilium replaced it, and
+# metrics on loopback only otherwise).
 KPS_SCRAPE_CONTROL_PLANE=false
 
 # --- API-server OIDC authentication (dex/) -----------------------------------

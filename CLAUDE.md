@@ -10,7 +10,12 @@
 | Lab | Base | Repository |
 |---|---|---|
 | Talos | Talos Linux — immutable OS, no systemd, PodSecurity `baseline` cluster-wide, `talosctl` | `OPS-NC/Vagrant-Talos` |
-| kubeadm | Debian 13 + `kubeadm` — ordinary OS, no PodSecurity enforced, replaceable kube-proxy | `OPS-NC/Vagrant-kubeadm` |
+| kubeadm | Debian 13 + `kubeadm` — ordinary OS, no PodSecurity enforced | `OPS-NC/Vagrant-kubeadm` |
+
+Both labs run **without kube-proxy** by default (`KUBE_PROXY_REPLACEMENT=true`, Cilium in eBPF);
+only the bootstrap mechanism differs — `kubeadm init --skip-phases=addon/kube-proxy` vs
+`cluster.proxy.disabled: true` in the Talos machine config. The value is decided at bootstrap,
+requires `CNI=cilium`, and is never a live toggle.
 
 This repository **brings up no cluster**: no `Vagrantfile`, no `lab.env`, no `_out/`. The labs
 own the VMs, the OS and the state; this repository owns the manifests and the charts, applied
