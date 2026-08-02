@@ -31,9 +31,6 @@ Overall install order and the big picture: `../README.md`.
 
 ## ⚡ Apply
 
-> 🎓 **Two paths, same result**: the all-in-one script below, or the **"Guided
-> walkthrough"** section further down — the same commands, one at a time, for training.
-
 ### Path A — the lab demos (tested)
 
 Two self-contained manifests, each in its own namespace. They depend on `../vault/lab-kv.sh`

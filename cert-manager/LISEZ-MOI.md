@@ -54,9 +54,6 @@ Le token se met dans **`lab.env`** (`CLOUDFLARE_API_TOKEN=…`, fichier gitignor
 
 ## ⚡ Installation
 
-> 🎓 **Deux chemins, même résultat** : le script tout-en-un ci-dessous, ou la section
-> **« Pas à pas guidé »** plus bas — les mêmes commandes, une par une, pour une formation.
-
 Via le point d'entrée du dépôt :
 ```bash
 ./install.sh <distro> platform     # <distro> = talos | kubeadm

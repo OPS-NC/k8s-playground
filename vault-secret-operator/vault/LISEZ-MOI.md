@@ -49,9 +49,6 @@ Port-forward si Vault n'est pas exposé :
 
 ## ⚡ Deux parcours
 
-> 🎓 **Deux chemins, même résultat** : le script tout-en-un ci-dessous, ou la section
-> **« Pas à pas guidé »** plus bas — les mêmes commandes, une par une, pour une formation.
-
 Le dossier contient **deux jeux de scripts** qui ne servent pas la même chose. Ne pas les mélanger :
 ils utilisent des mounts, des namespaces et des noms de role différents.
 

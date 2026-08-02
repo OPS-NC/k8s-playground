@@ -53,9 +53,6 @@ En interne au cluster : `http://minio.minio-s3.svc.cluster.local:9000`.
 
 ## ⚡ Installation
 
-> 🎓 **Deux chemins, même résultat** : le script tout-en-un ci-dessous, ou la section
-> **« Pas à pas guidé »** plus bas — les mêmes commandes, une par une, pour une formation.
-
 Via le point d'entrée du dépôt :
 ```bash
 ./install.sh <distro> minio     # <distro> = talos | kubeadm

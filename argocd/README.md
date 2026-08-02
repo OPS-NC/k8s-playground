@@ -42,9 +42,6 @@ the recommended mode behind an ingress/gateway that handles TLS.
 
 ## ⚡ Install
 
-> 🎓 **Two paths, same result**: the all-in-one script below, or the **"Guided
-> walkthrough"** section further down — the same commands, one at a time, for training.
-
 Through the repository entry point:
 ```bash
 ./install.sh <distro> argocd     # <distro> = talos | kubeadm

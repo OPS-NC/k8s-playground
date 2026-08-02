@@ -43,9 +43,6 @@ L'addon le plus léger du lab — pas de stockage, pas de Gateway, pas de certif
 
 ## ⚡ Installation
 
-> 🎓 **Deux chemins, même résultat** : le script tout-en-un ci-dessous, ou la section
-> **« Pas à pas guidé »** plus bas — les mêmes commandes, une par une, pour une formation.
-
 Via le point d'entrée du dépôt :
 ```bash
 ./install.sh <distro> chaos     # <distro> = talos | kubeadm

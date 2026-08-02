@@ -31,9 +31,6 @@ Ordre global d'installation et vue d'ensemble : `../LISEZ-MOI.md`.
 
 ## ⚡ Appliquer
 
-> 🎓 **Deux chemins, même résultat** : le script tout-en-un ci-dessous, ou la section
-> **« Pas à pas guidé »** plus bas — les mêmes commandes, une par une, pour une formation.
-
 ### Parcours A — les démos du lab (testées)
 
 Deux manifestes autonomes, chacun dans son namespace. Ils dépendent de `../vault/lab-kv.sh` et

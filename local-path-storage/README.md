@@ -43,9 +43,6 @@ Who uses it in this lab:
 
 ## ⚡ Install
 
-> 🎓 **Two paths, same result**: the all-in-one script below, or the **"Guided
-> walkthrough"** section further down — the same commands, one at a time, for training.
-
 Through the repository entry point:
 ```bash
 ./install.sh <distro> local-path     # <distro> = talos | kubeadm
