@@ -51,9 +51,6 @@ Fichiers du dossier :
 
 ## ⚡ Installation
 
-> 🎓 **Deux chemins, même résultat** : le script tout-en-un ci-dessous, ou la section
-> **« Pas à pas guidé »** plus bas — les mêmes commandes, une par une, pour une formation.
-
 Via le point d'entrée du dépôt :
 ```bash
 ./install.sh <distro> longhorn     # <distro> = talos | kubeadm

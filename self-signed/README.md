@@ -44,9 +44,6 @@ publicly** — it only has to resolve on the machine you browse from.
 
 ## ⚡ Install
 
-> 🎓 **Two paths, same result**: the all-in-one script below, or the **"Guided
-> walkthrough"** section further down — the same commands, one at a time, for training.
-
 Through the repository entry point:
 ```bash
 ./install.sh <distro> self-signed     # <distro> = talos | kubeadm

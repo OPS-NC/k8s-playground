@@ -63,9 +63,6 @@ kubectl oidc-login --version             # version de référence de ce lab : v1
 
 ## ⚡ Installation
 
-> 🎓 **Deux chemins, même résultat** : le script tout-en-un ci-dessous, ou la section
-> **« Pas à pas guidé »** plus bas — les mêmes commandes, une par une, pour une formation.
-
 Via le point d'entrée du dépôt :
 ```bash
 ./install.sh <distro> keycloak dex      # <distro> = talos | kubeadm

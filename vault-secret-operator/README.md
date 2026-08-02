@@ -76,9 +76,6 @@ The `noble` distribution ships a generic binary, which also works on a more rece
 
 ## ⚡ Install
 
-> 🎓 **Two paths, same result**: the all-in-one script below, or the **"Guided
-> walkthrough"** section further down — the same commands, one at a time, for training.
-
 Order matters: **Vault first** (the identity must exist before a client tries to log in), then
 the operator, then the CRs.
 

@@ -76,9 +76,6 @@ La dist `noble` fournit un binaire générique, valable sur une Ubuntu plus réc
 
 ## ⚡ Installation
 
-> 🎓 **Deux chemins, même résultat** : le script tout-en-un ci-dessous, ou la section
-> **« Pas à pas guidé »** plus bas — les mêmes commandes, une par une, pour une formation.
-
 L'ordre compte : **Vault d'abord** (l'identité doit exister avant qu'un client tente de se logger),
 puis l'opérateur, puis les CR.
 

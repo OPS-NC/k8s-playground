@@ -43,9 +43,6 @@ NPD keeps these two conditions continuously up to date on every node (`KernelDea
 
 ## ⚡ Install
 
-> 🎓 **Two paths, same result**: the all-in-one script below, or the **"Guided
-> walkthrough"** section further down — the same commands, one at a time, for training.
-
 Through the repository entry point:
 ```bash
 ./install.sh <distro> npd     # <distro> = talos | kubeadm

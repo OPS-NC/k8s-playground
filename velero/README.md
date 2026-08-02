@@ -96,9 +96,6 @@ whole point is that it gets destroyed and rebuilt, only the second one is worth 
 
 ## ⚡ Install
 
-> 🎓 **Two paths, same result**: the all-in-one script below, or the **"Guided walkthrough"**
-> section further down — the same commands, one at a time, for training.
-
 Through the repository entry point:
 ```bash
 ./install.sh <distro> velero       # <distro> = talos | kubeadm
