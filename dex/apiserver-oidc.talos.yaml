@@ -29,6 +29,9 @@ cluster:
     extraArgs:
       # The expected issuer. Must equal Dex's `config.issuer` and its HTTPRoute hostname
       # EXACTLY — otherwise "oidc: id token issued by a different provider".
+      # ⚠️ `lab.example.io` is the repository's NEUTRAL placeholder and NOTHING substitutes it
+      #    here: unlike the manifests `dex-up.sh` applies, this patch is passed to
+      #    `talosctl patch mc` BY HAND. Replace it with your own LAB_DOMAIN — see README.md.
       oidc-issuer-url: https://dex.lab.example.io
       # The expected audience: the `id` of the static client declared in dex/values.yaml.
       oidc-client-id: kubernetes

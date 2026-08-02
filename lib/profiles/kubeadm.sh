@@ -90,15 +90,32 @@ APISERVER_OIDC_MECHANISM="kubeadm-config ConfigMap + kubeadm init phase, on each
 # does NOT run them, they restart the API server (see dex/README.md).
 apiserver_oidc_commands() {
   cat <<EOF
-    # 1. merge the fragment into the source of truth (interactive editor)
-    kubectl -n kube-system edit configmap kubeadm-config     # paste the apiServer block of ${1}
+    # 1. substitute the neutral domain, then merge the fragment into the source of truth.
+    #    The fragment ships the repository's public placeholder: an issuer that differs by a
+    #    single character has EVERY token rejected with "id token issued by a different
+    #    provider" — the failure this component is most often reported for.
+    sed "s|dex\\.lab\\.example\\.io|dex.${LAB_DOMAIN}|" ${1}
+    kubectl -n kube-system edit configmap kubeadm-config   # paste the apiServer block printed above
 
-    # 2. on EACH control plane, regenerate the static manifest from that ConfigMap
+    # 2. on EACH control plane, regenerate the static manifest from that ConfigMap.
+    #    The InitConfiguration document is NOT optional: advertiseAddress lives there and the
+    #    kubeadm-config ConfigMap only stores the ClusterConfiguration. Feed kubeadm the
+    #    ClusterConfiguration alone and it falls back to the default-route interface — on a
+    #    Vagrant VM that is eth0, the VirtualBox NAT address 10.0.2.15, IDENTICAL on every VM
+    #    and routable from none. The kubernetes Service then advertises it and every pod loses
+    #    the API, while kubectl from the host keeps working through the VIP and /readyz still
+    #    answers ok. We read the address back from the manifest currently in place.
     vagrant ssh k8s-cp1 -c '
-      kubectl -n kube-system get cm kubeadm-config -o jsonpath="{.data.ClusterConfiguration}" \\
-        | sudo tee /tmp/kubeadm.yaml >/dev/null
+      ADDR=\$(sudo sed -n "s/.*--advertise-address=//p" /etc/kubernetes/manifests/kube-apiserver.yaml)
+      { printf "apiVersion: kubeadm.k8s.io/v1beta4\\nkind: InitConfiguration\\nlocalAPIEndpoint:\\n  advertiseAddress: %s\\n  bindPort: 6443\\n---\\n" "\$ADDR"
+        kubectl -n kube-system get cm kubeadm-config -o jsonpath="{.data.ClusterConfiguration}"
+      } | sudo tee /tmp/kubeadm.yaml >/dev/null
       sudo kubeadm init phase control-plane apiserver --config /tmp/kubeadm.yaml'
     kubectl get --raw=/readyz && echo   # check BEFORE moving on to the next control plane
+
+    # 3. prove the endpoint did NOT flip to the NAT address (this is the regression above)
+    kubectl get endpointslice -l kubernetes.io/service-name=kubernetes \\
+      -o jsonpath='{.items[*].endpoints[*].addresses[*]}'; echo   # expects the host-only IP
 EOF
 }
 

@@ -111,9 +111,14 @@ APISERVER_OIDC_MECHANISM="talosctl patch mc (the machine configuration is an API
 # NOT run them, they restart the API server (see dex/README.md).
 apiserver_oidc_commands() {
   cat <<EOF
+    # Substitute the neutral domain FIRST: the patch ships the repository's public
+    # placeholder, and an issuer that differs by a single character has EVERY token rejected
+    # with "id token issued by a different provider".
+    sed "s|dex\\.lab\\.example\\.io|dex.${LAB_DOMAIN}|" ${1} > /tmp/oidc-issuer.talos.yaml
+
     for ip in \$(kubectl get nodes -l node-role.kubernetes.io/control-plane \\
                    -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address}{" "}{end}'); do
-      talosctl -n "\$ip" patch mc --patch @${1}
+      talosctl -n "\$ip" patch mc --patch @/tmp/oidc-issuer.talos.yaml
       kubectl get --raw=/readyz && echo   # check BEFORE moving on to the next one
     done
 EOF
