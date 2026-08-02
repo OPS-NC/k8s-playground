@@ -24,6 +24,9 @@ apiServer:
   extraArgs:
     # The expected issuer. Must equal Dex's `config.issuer` and its HTTPRoute hostname
     # EXACTLY — otherwise "oidc: id token issued by a different provider".
+    # ⚠️ `lab.example.io` is the repository's NEUTRAL placeholder and NOTHING substitutes it
+    #    here: unlike the manifests `dex-up.sh` applies, this fragment is merged BY HAND.
+    #    Replace it with your own LAB_DOMAIN before pasting — see README.md.
     - name: oidc-issuer-url
       value: https://dex.lab.example.io
     # The expected audience: the `id` of the static client declared in dex/values.yaml.

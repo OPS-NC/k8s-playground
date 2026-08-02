@@ -256,9 +256,13 @@ main. À lire avant de lancer quoi que ce soit :
 ### Talos
 
 ```bash
+# Substituer le domaine neutre D'ABORD : le patch porte le placeholder public du dépôt.
+sed "s|dex\.lab\.example\.io|dex.${LAB_DOMAIN}|" dex/apiserver-oidc.talos.yaml \
+  > /tmp/oidc-issuer.talos.yaml
+
 for ip in $(kubectl get nodes -l node-role.kubernetes.io/control-plane \
               -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address}{" "}{end}'); do
-  talosctl -n "$ip" patch mc --patch @dex/apiserver-oidc.talos.yaml
+  talosctl -n "$ip" patch mc --patch @/tmp/oidc-issuer.talos.yaml
   kubectl get --raw=/readyz && echo
 done
 ```
@@ -306,16 +310,34 @@ Le manifeste de l'apiserver est un fichier sur chaque control plane, régénér�
 depuis la ConfigMap `kubeadm-config`. Éditer le manifeste directement marche — jusqu'au
 prochain `kubeadm upgrade` qui l'écrase en silence. La ConfigMap est donc la source de vérité :
 
+> ⚠️ **Le document `InitConfiguration` ci-dessous n'est pas optionnel.** `advertiseAddress` vit
+> dans l'`InitConfiguration`, et la ConfigMap `kubeadm-config` ne stocke **que** la
+> `ClusterConfiguration`. Donner la seule `ClusterConfiguration` à `kubeadm` le fait redéfaut
+> sur l'interface de route par défaut — sur une VM Vagrant c'est `eth0`, l'adresse NAT
+> VirtualBox **`10.0.2.15`, identique sur toutes les VM et routable depuis aucune**. Le Service
+> `kubernetes` annonce alors cette adresse et **tous les pods perdent l'API** (`dial tcp
+> 10.96.0.1:443: connect: connection refused`). Le symptôme est trompeur : `kubectl` depuis
+> l'hôte continue de marcher (il passe par la VIP) et `/readyz` répond toujours `ok`.
+
 ```bash
-# 1. fusionner le bloc apiServer de dex/apiserver-oidc.kubeadm.yaml dans ClusterConfiguration
+# 1. substituer le domaine neutre, puis fusionner le bloc apiServer dans ClusterConfiguration.
+#    Un issuer qui diffère d'un caractère = tous les tokens rejetés.
+sed "s|dex\.lab\.example\.io|dex.${LAB_DOMAIN}|" dex/apiserver-oidc.kubeadm.yaml
 kubectl -n kube-system edit configmap kubeadm-config
 
-# 2. sur CHAQUE control plane, régénérer le manifeste du pod statique depuis cette ConfigMap
+# 2. sur CHAQUE control plane, régénérer le manifeste du pod statique depuis cette ConfigMap.
+#    L'adresse d'annonce est relue depuis le manifeste actuellement en place.
 vagrant ssh k8s-cp1 -c '
-  kubectl -n kube-system get cm kubeadm-config -o jsonpath="{.data.ClusterConfiguration}" \
-    | sudo tee /tmp/kubeadm.yaml >/dev/null
+  ADDR=$(sudo sed -n "s/.*--advertise-address=//p" /etc/kubernetes/manifests/kube-apiserver.yaml)
+  { printf "apiVersion: kubeadm.k8s.io/v1beta4\nkind: InitConfiguration\nlocalAPIEndpoint:\n  advertiseAddress: %s\n  bindPort: 6443\n---\n" "$ADDR"
+    kubectl -n kube-system get cm kubeadm-config -o jsonpath="{.data.ClusterConfiguration}"
+  } | sudo tee /tmp/kubeadm.yaml >/dev/null
   sudo kubeadm init phase control-plane apiserver --config /tmp/kubeadm.yaml'
 kubectl get --raw=/readyz && echo
+
+# 3. prouver que l'endpoint n'a PAS basculé sur l'adresse NAT
+kubectl get endpointslice -l kubernetes.io/service-name=kubernetes \
+  -o jsonpath='{.items[*].endpoints[*].addresses[*]}'; echo   # attendu : l'IP host-only
 ```
 
 <details>
