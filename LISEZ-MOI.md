@@ -318,6 +318,7 @@ d'environnement.
 | Longhorn | `longhorn/longhorn` | `1.12.0` | `longhorn/longhorn-up.sh` | `LONGHORN_VERSION` |
 | Velero | `vmware-tanzu/velero` | `12.1.0` (app v1.18.1) | `velero/velero-up.sh` | `VELERO_VERSION` |
 | velero-plugin-for-aws | image `velero/velero-plugin-for-aws` | `v1.14.2` | `velero/velero-up.sh` | `VELERO_AWS_PLUGIN_VERSION` |
+| Velero UI | `otwld/velero-ui` | `0.15.0` (app 0.10.2) | `velero/velero-up.sh` | `VELERO_UI_VERSION` |
 | local-path-provisioner | image `rancher/…` | `v0.0.36` | `local-path-storage/local-path-storage.yaml` | — |
 | CloudNativePG | `cnpg/cloudnative-pg` | `0.29.0` (app 1.30.0) | `cloudnative-pg/cloudnative-pg-up.sh` | `CNPG_VERSION` |
 | Keycloak | `keycloak-k8s-resources` (opérateur **et** serveur) | `26.7.0` | `keycloak/keycloak-up.sh` | `KEYCLOAK_VERSION` |
@@ -369,7 +370,7 @@ lever toute ambiguïté, mais il est optionnel dans les deux dispositions.
 
 | Dossier | Rôle | Commande | Prérequis |
 |---|---|---|---|
-| [`velero/`](velero/LISEZ-MOI.md) | sauvegarde/restauration des **objets** *et* des **données de PV** (Longhorn compris, via FSB/kopia) vers MinIO | `./install.sh <distro> velero` | un MinIO (`minio-cluster` ou `minio`) |
+| [`velero/`](velero/LISEZ-MOI.md) | sauvegarde/restauration des **objets** *et* des **données de PV** (Longhorn compris, via FSB/kopia) vers MinIO, **UI sur `velero.<LAB_DOMAIN>`** | `./install.sh <distro> velero` | un MinIO (`minio-cluster` ou `minio`) |
 
 ### 🐘 Bases de données
 

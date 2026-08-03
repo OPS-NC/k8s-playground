@@ -309,6 +309,7 @@ Audited on **1 August 2026**: everything is on the latest stable release publish
 | Longhorn | `longhorn/longhorn` | `1.12.0` | `longhorn/longhorn-up.sh` | `LONGHORN_VERSION` |
 | Velero | `vmware-tanzu/velero` | `12.1.0` (app v1.18.1) | `velero/velero-up.sh` | `VELERO_VERSION` |
 | velero-plugin-for-aws | image `velero/velero-plugin-for-aws` | `v1.14.2` | `velero/velero-up.sh` | `VELERO_AWS_PLUGIN_VERSION` |
+| Velero UI | `otwld/velero-ui` | `0.15.0` (app 0.10.2) | `velero/velero-up.sh` | `VELERO_UI_VERSION` |
 | local-path-provisioner | image `rancher/…` | `v0.0.36` | `local-path-storage/local-path-storage.yaml` | — |
 | CloudNativePG | `cnpg/cloudnative-pg` | `0.29.0` (app 1.30.0) | `cloudnative-pg/cloudnative-pg-up.sh` | `CNPG_VERSION` |
 | Keycloak | `keycloak-k8s-resources` (operator **and** server) | `26.7.0` | `keycloak/keycloak-up.sh` | `KEYCLOAK_VERSION` |
@@ -359,7 +360,7 @@ unambiguous, but it is optional in both layouts.
 
 | Directory | Purpose | Command | Prerequisites |
 |---|---|---|---|
-| [`velero/`](velero/README.md) | backup/restore of the **objects** *and* of the **PV data** (Longhorn included, through FSB/kopia) into MinIO | `./install.sh <distro> velero` | a MinIO (`minio-cluster` or `minio`) |
+| [`velero/`](velero/README.md) | backup/restore of the **objects** *and* of the **PV data** (Longhorn included, through FSB/kopia) into MinIO, **UI at `velero.<LAB_DOMAIN>`** | `./install.sh <distro> velero` | a MinIO (`minio-cluster` or `minio`) |
 
 ### 🐘 Databases
 

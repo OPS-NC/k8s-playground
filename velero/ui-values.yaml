@@ -1,0 +1,72 @@
+# Helm values for velero-ui (otwld) — the web dashboard in front of Velero.
+#
+# Installed in the SAME namespace as Velero: the UI is a view onto this component, not a
+# component of its own, and keeping them together means `kubectl -n velero get all` shows the
+# whole thing.
+#
+# The passphrase and the admin password are NOT here: velero-up.sh generates them once and
+# stores them in the Secret `velero-ui-auth`, read back on every re-run. A password in a
+# versioned file would be a password published on GitHub.
+
+configuration:
+  logLevel: "info"
+
+  general:
+    # /!\ The chart CREATES a passphrase Secret and never mounts it: `helm template` shows no
+    # AUTH_SECRET_PASSPHRASE in the Deployment (verified on chart 0.15.0 / app 0.10.2). Left
+    # alone, the API would sign its JWTs with the documented default, in public — while the
+    # Secret sitting in the namespace suggests otherwise. So: disable the chart's mechanism and
+    # wire the variable ourselves, in the `env:` block below.
+    secretPassPhrase:
+      useSecret: false
+
+    # Which Velero to drive. Same namespace here, but the chart needs it spelled out: it uses
+    # the value to scope a Role, not just to build a query.
+    veleroNamespace: "velero"
+
+rbac:
+  create: true
+  # cluster-admin, and it is not laziness: the UI lists every namespaced object of a backup and
+  # RESTORES them anywhere, which is by construction a cluster-wide write. Velero's own
+  # ServiceAccount has the same rights for the same reason. The consequence is worth stating
+  # plainly — see the README pitfall: this UI is a full escalation path behind one password.
+  clusterAdministrator: true
+  clusterAdministratorName: cluster-admin
+
+service:
+  type: ClusterIP
+  port: 3000
+
+# The chart's Ingress is unused: this repository exposes UIs through Gateway API
+# (ui-httproute.yaml on main-gateway), like every other add-on here.
+ingress:
+  enabled: false
+
+env:
+  # Basic auth is the only mechanism enabled. The chart also supports OIDC and LDAP; pointing it
+  # at ../keycloak/ is a natural next step, out of scope for the default install.
+  - name: BASIC_AUTH_ENABLED
+    value: "true"
+  - name: BASIC_AUTH_USERNAME
+    valueFrom:
+      secretKeyRef:
+        name: velero-ui-auth
+        key: username
+  - name: BASIC_AUTH_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: velero-ui-auth
+        key: password
+  - name: AUTH_SECRET_PASSPHRASE
+    valueFrom:
+      secretKeyRef:
+        name: velero-ui-auth
+        key: pass_phrase
+
+# A dashboard that polls the API server: cheap, but not free on a 4 GB worker.
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi

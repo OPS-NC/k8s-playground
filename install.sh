@@ -35,7 +35,7 @@ CATALOGUE=(
   "local-path|local-path-storage/local-path-up.sh|dynamic local storage (hostPath)"
   "minio|minio-s3/minio-up.sh|standalone MinIO (S3 + console)"
   "minio-cluster|minio-s3/cluster/minio-cluster-up.sh|distributed 4-node MinIO (backup target)"
-  "velero|velero/velero-up.sh|Velero: backs up the K8s objects AND the PV data to MinIO"
+  "velero|velero/velero-up.sh|Velero: backs up the K8s objects AND the PV data to MinIO, + its UI"
   "cnpg|cloudnative-pg/cloudnative-pg-up.sh|PostgreSQL HA operator + demo cluster"
   "keycloak|keycloak/keycloak-up.sh|Keycloak through its operator + 'lab' realm (OIDC IdP)"
   "dex|dex/dex-up.sh|Dex in front of Keycloak: kubectl login over OIDC (oidc-login)"

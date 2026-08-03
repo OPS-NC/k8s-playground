@@ -7,12 +7,13 @@
 > Velero écrit deux choses dans le même bucket S3 : les **objets Kubernetes** (tous les
 > manifestes, namespacés et cluster-scoped) et le **contenu des volumes persistants** — Longhorn
 > compris — via le File System Backup. Un namespace supprimé par erreur, PVC et données
-> incluses, revient avec un seul `velero restore create`.
+> incluses, revient avec un seul `velero restore create` — ou en trois clics dans l'UI installée
+> avec, sur `velero.<LAB_DOMAIN>`.
 
-> 🌐 Contrairement à la plupart des addons d'ici, **aucun fichier de ce dossier ne porte le
-> domaine neutre** : Velero n'expose pas d'UI et joint MinIO par le Service interne au cluster.
-> Il n'y a rien à substituer, et un `kubectl apply -f velero/schedule.yaml` à la main fait
-> exactement ce que fait le script.
+> 🌐 Deux moitiés, deux modes d'exposition. Les **sauvegardes** ne quittent jamais le réseau de
+> pods : Velero joint MinIO par le Service interne, donc `schedule.yaml` ne porte aucun domaine
+> et un `kubectl apply` à la main fait exactement ce que fait le script. **L'UI**, elle, porte
+> bien le domaine neutre (`ui-httproute.yaml`), substitué à la volée comme partout ailleurs.
 
 ## 🎯 À quoi ça sert
 
@@ -50,6 +51,28 @@ jour.
 > `PodVolumeBackup` (`kubectl -n velero get podvolumebackups`) vaut zéro pour toutes les
 > horaires.
 
+### L'UI — ce qu'elle change
+
+[velero-ui](https://velero-ui.docs.otwld.com/) (otwld) est livrée avec l'addon et atterrit dans
+le même namespace, sur `https://velero.<LAB_DOMAIN>`. Ce n'est pas de la décoration : sans elle,
+lire une sauvegarde passe par `velero backup describe --details`, et *cette commande ne
+fonctionne pas depuis votre poste* dans ce lab (elle fabrique une URL présignée contre un nom DNS
+interne au cluster — voir les pièges). L'UI, elle, tourne dans le cluster : le problème ne se
+pose pas.
+
+| | CLI | UI |
+|---|---|---|
+| Parcourir sauvegardes, schedules, `PodVolumeBackup` | oui | oui, avec leur état en direct |
+| Lire les erreurs d'une sauvegarde `PartiallyFailed` | ❌ **cassé depuis l'hôte** (URL présignée) | ✅ elle est dans le cluster |
+| Créer une sauvegarde / lancer une restauration | oui | oui, par formulaire |
+| Scripting, CI | ✅ | ❌ |
+
+> ⚠️ **Son ServiceAccount est `cluster-admin`.** Un outil qui restaure des objets arbitraires
+> dans des namespaces arbitraires ne peut pas être moins que ça — le ServiceAccount de Velero
+> lui-même a les mêmes droits. Mais ça veut dire que le tableau de bord est un chemin de prise de
+> contrôle complet derrière un seul mot de passe. Acceptable sur un lab ; `VELERO_UI=false` si
+> vous préférez vous en passer.
+
 ### Le montage en une phrase
 
 `deployNodeAgent: true` + `defaultVolumesToFsBackup: true` : chaque volume de pod est sauvegardé
@@ -78,9 +101,11 @@ mérite le nom.
 
 | Fichier | Rôle |
 |---|---|
-| `velero-up.sh` | **l'install** : bucket MinIO + utilisateur restreint, namespace, Secret de credentials, chart, Schedules |
+| `velero-up.sh` | **l'install** : bucket MinIO + utilisateur restreint, namespace, Secret de credentials, chart, Schedules, UI |
 | `values.yaml` | Valeurs Helm : l'init container du plugin AWS, la `BackupStorageLocation`, les défauts FSB, le `node-agent` |
 | `schedule.yaml` | **deux** `Schedule` — `hourly-objects` (objets, TTL 48h) et `daily-full` (objets + données des PV, 02:00, TTL 7 jours) |
+| `ui-values.yaml` | Valeurs Helm de velero-ui : basic auth câblée sur le Secret `velero-ui-auth`, RBAC, Ingress du chart désactivé |
+| `ui-httproute.yaml` | la route de l'UI sur `main-gateway` — `velero.<LAB_DOMAIN>`, listener `https`, certificat wildcard |
 
 ## 📋 Prérequis
 
@@ -92,12 +117,14 @@ mérite le nom.
 | `mc` (client MinIO) | crée le bucket et l'utilisateur restreint — **téléchargé automatiquement** s'il manque | `mc --version` |
 | CLI `velero` — **optionnelle** | tout ici est en CRD pures, mais une restauration sans la CLI est pénible | `velero version --client-only` |
 | Un addon de **stockage**, si vous voulez des données de volume à sauvegarder | sans PVC dans le cluster, Velero ne sauvegarde que les objets — ce n'est pas une panne, juste une moitié vide | `kubectl get pvc -A` |
+| La **plateforme** (`main-gateway` + TLS wildcard) — **pour l'UI seulement** | la HTTPRoute du tableau de bord. S'en passer coûte la route et rien d'autre : le script prévient, la saute et va au bout | `kubectl -n envoy-gateway-system get gateway main-gateway` |
 
-> ℹ️ **Pas d'IP LoadBalancer, pas de Gateway, pas d'enregistrement DNS.** Velero parle à
-> `minio.<ns>.svc.cluster.local:9000`, une ClusterIP : cet addon se comporte à l'identique que
-> les IP LoadBalancer du lab viennent de l'annonceur L2 de Cilium ou de
-> [`../metallb/`](../metallb/LISEZ-MOI.md), et il continue de fonctionner quand aucun des deux
-> n'est installé.
+> ℹ️ **Les sauvegardes n'ont besoin ni d'IP LoadBalancer, ni de Gateway, ni d'enregistrement
+> DNS.** Velero parle à `minio.<ns>.svc.cluster.local:9000`, une ClusterIP : cette moitié se
+> comporte à l'identique que les IP LoadBalancer du lab viennent de l'annonceur L2 de Cilium ou
+> de [`../metallb/`](../metallb/LISEZ-MOI.md), et elle continue de fonctionner quand aucun des
+> deux n'est installé. Seule l'**UI** a besoin de la Gateway — et elle se rabat sur un
+> `port-forward` au lieu de faire échouer l'installation.
 
 ## ⚡ Installation
 
@@ -107,15 +134,24 @@ Via le point d'entrée du dépôt :
 ```
 
 Versions épinglées : chart **Velero 12.1.0** (app **v1.18.1**), plugin
-**`velero/velero-plugin-for-aws:v1.14.2`**.
+**`velero/velero-plugin-for-aws:v1.14.2`**, chart d'UI **otwld/velero-ui 0.15.0**
+(app **0.10.2**).
 
 ```bash
 ./velero/velero-up.sh <distro>
 ```
 
-Idempotent : `helm upgrade --install` + `kubectl apply`, et l'utilisateur MinIO **garde sa clé
+L'UI vient avec, sur `https://velero.<LAB_DOMAIN>`, utilisateur `admin`. Le mot de passe est
+généré à la première installation et **conservé d'un passage à l'autre** :
+
+```bash
+kubectl -n velero get secret velero-ui-auth -o jsonpath='{.data.password}' | base64 -d ; echo
+```
+
+Idempotent : `helm upgrade --install` + `kubectl apply` ; l'utilisateur MinIO **garde sa clé
 d'accès existante** (en régénérer une à chaque passage ferait silencieusement échouer tous les
-envois en 403).
+envois en 403) et l'UI garde son mot de passe pour la même raison — un mot de passe régénéré à
+chaque exécution est un mot de passe que personne ne peut noter.
 
 | Variable | Défaut | Effet |
 |---|---|---|
@@ -124,12 +160,15 @@ envois en 403).
 | `VELERO_MINIO_NS` | détecté | quel MinIO viser (`minio-cluster`, puis `minio-s3`) |
 | `VELERO_BUCKET` | `velero` | nom du bucket — créé s'il manque |
 | `VELERO_S3_USER` | `velero` | utilisateur MinIO, restreint à ce seul bucket |
-| `VELERO_NS` | `velero` | namespace de Velero lui-même |
+| `VELERO_NS` | `velero` | namespace de Velero lui-même — l'UI y atterrit aussi |
+| `VELERO_UI` | `true` | `false` saute complètement le tableau de bord (ni chart, ni Secret, ni route) |
+| `VELERO_UI_VERSION` | `0.15.0` | version du chart `otwld/velero-ui` |
+| `VELERO_UI_USER` | `admin` | l'identifiant basic-auth du tableau de bord |
 | `MC_ALIAS` | `labminio` | l'alias `mc` temporaire du port-forward. **Doit commencer par une lettre** — sinon `mc` refuse le nom (c'est ce qui cassait l'install avec l'ancien `_lab`), et il évite volontairement `lab` tout court pour ne jamais écraser votre propre alias |
 
 ## 🧬 Talos vs kubeadm
 
-**Aucune divergence à l'installation** : les mêmes 4 étapes, le même chart, les mêmes valeurs
+**Aucune divergence à l'installation** : les mêmes 5 étapes, les mêmes charts, les mêmes valeurs
 sur les deux labs. La seule ligne qui casserait sur Talos si on la laissait implicite est portée
 par une variable de profil, `VELERO_POD_VOLUME_PATH`.
 
@@ -138,7 +177,8 @@ par une variable de profil, `VELERO_POD_VOLUME_PATH`.
 | hostPath du `node-agent` | `/var/lib/kubelet/pods` — ça marche **parce que** le dossier racine du kubelet est sous `/var`, le seul système de fichiers inscriptible (`/` et `/usr` sont en lecture seule) | `/var/lib/kubelet/pods` — le chemin upstream sur un système de fichiers ordinaire, rien de particulier |
 | Label PodSecurity `privileged` sur `velero` | **obligatoire** : `baseline` est imposé sur tout le cluster et interdit les volumes hostPath. Sans le label, le DaemonSet existe et ne crée **aucun** pod — en silence | documente le besoin ; n'impose rien aujourd'hui |
 | Outillage hôte | `kubectl`, `helm`, `curl`, `openssl` (`mc` téléchargé automatiquement) | identique — **pas de `talosctl`**, Velero ne touche jamais à la configuration des nodes |
-| Étapes du script | **4** | **4** |
+| Étapes du script | **5** | **5** |
+| L'UI | Deployment ordinaire, sans hostPath ni privilège — s'installe à l'identique | identique |
 | Ce qui finit dans la sauvegarde | identique : les objets, plus tout volume de pod monté | identique |
 
 Pourquoi une variable pour une valeur identique des deux côtés : ça transforme « le défaut du
@@ -232,14 +272,46 @@ kubectl apply -f velero/schedule.yaml
 kubectl -n velero get schedules      # hourly-objects + daily-full, avec leurs crons
 ```
 
+### 7. L'UI et ses credentials
+
+Le mot de passe est frappé ici, une fois. Relancer le script le relit dans le Secret au lieu de
+le remplacer.
+
+```bash
+kubectl -n velero create secret generic velero-ui-auth \
+  --from-literal=username=admin \
+  --from-literal=password="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)" \
+  --from-literal=pass_phrase="$(openssl rand -hex 32)" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+helm repo add otwld https://helm.otwld.com/ && helm repo update otwld
+helm upgrade --install velero-ui otwld/velero-ui \
+  --namespace velero --version 0.15.0 \
+  --values velero/ui-values.yaml --wait --timeout 5m
+
+sed 's/lab\.example\.io/'"$LAB_DOMAIN"'/g' velero/ui-httproute.yaml | kubectl apply -f -
+```
+
+> ⚠️ **Le chart crée un Secret de passphrase JWT et ne le monte jamais.** En 0.15.0,
+> `helm template` ne montre aucun `AUTH_SECRET_PASSPHRASE` dans le Deployment : l'application
+> retombe sur son défaut documenté (`this is not a secret passphrase`) et signe des jetons
+> prévisibles, pendant qu'un Secret `velero-ui-passphrase` traîne dans le namespace en laissant
+> croire le contraire. `ui-values.yaml` coupe ce mécanisme et câble la variable via `env:`.
+> À revérifier après une montée de version du chart :
+> ```bash
+> kubectl -n velero get deploy velero-ui \
+>   -o jsonpath='{.spec.template.spec.containers[0].env[*].name}{"\n"}'
+> ```
+
 ## 🔧 Ce que fait le script
 
 | Étape | Action |
 |---|---|
-| `[1/4]` | namespace `velero` + les trois labels PodSecurity `privileged` |
-| `[2/4]` | MinIO : bucket `velero`, policy `velero-rw`, utilisateur `velero` restreint, puis le Secret `velero-s3` |
-| `[3/4]` | chart Helm avec l'endpoint résolu, puis attente de `BackupStorageLocation: Available` |
-| `[4/4]` | `kubectl apply -f schedule.yaml` — les **deux** Schedule (`hourly-objects`, `daily-full`) |
+| `[1/5]` | namespace `velero` + les trois labels PodSecurity `privileged` |
+| `[2/5]` | MinIO : bucket `velero`, policy `velero-rw`, utilisateur `velero` restreint, puis le Secret `velero-s3` |
+| `[3/5]` | chart Helm avec l'endpoint résolu, puis attente de `BackupStorageLocation: Available` |
+| `[4/5]` | `kubectl apply -f schedule.yaml` — les **deux** Schedule (`hourly-objects`, `daily-full`) |
+| `[5/5]` | Secret `velero-ui-auth` (généré une fois), le chart de l'UI et sa HTTPRoute — sauté avec `VELERO_UI=false`, route seule sautée si la Gateway API est absente |
 
 ### Les réglages Helm qui comptent
 
@@ -268,7 +340,7 @@ kubectl -n velero get schedules      # hourly-objects + daily-full, avec leurs c
 
 ```bash
 kubectl -n velero get backupstoragelocation default        # PHASE=Available
-kubectl -n velero get pods                                 # velero + un node-agent PAR NODE
+kubectl -n velero get pods                                 # velero + velero-ui + un node-agent PAR NODE
 kubectl -n velero get schedules                            # hourly-objects + daily-full
 
 # La vraie preuve : une sauvegarde qui va au bout, avec ses volumes
@@ -309,6 +381,28 @@ kubectl -n minio-cluster port-forward svc/minio 19010:9000 &
 mc ls -r labminio/velero/backups/smoke/
 kill %1
 ```
+
+L'UI, sans dépendre de la résolution du wildcard par votre DNS :
+
+```bash
+GWIP=192.168.56.200
+PASS=$(kubectl -n velero get secret velero-ui-auth -o jsonpath='{.data.password}' | base64 -d)
+
+curl -sk -o /dev/null -w '%{http_code}\n' \
+  --resolve "velero.$LAB_DOMAIN:443:$GWIP" "https://velero.$LAB_DOMAIN/"        # 200
+
+# La vraie preuve — l'API rend un jeton, et ce jeton lit les objets de Velero :
+TOKEN=$(curl -sk --resolve "velero.$LAB_DOMAIN:443:$GWIP" \
+  -X POST "https://velero.$LAB_DOMAIN/api/auth/login" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"admin\",\"password\":\"$PASS\"}" | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+curl -sk -o /dev/null -w '%{http_code}\n' --resolve "velero.$LAB_DOMAIN:443:$GWIP" \
+  -H "Authorization: Bearer $TOKEN" "https://velero.$LAB_DOMAIN/api/backups"    # 200
+```
+
+> ⚠️ **Le `--resolve` n'est pas optionnel.** Le listener `https` est cadré sur
+> `*.<LAB_DOMAIN>` : une requête vers l'IP nue n'envoie aucun SNI et Envoy n'a aucun listener à
+> qui la donner — `curl -k https://192.168.56.200/` rend `000`, pas un 404. Rien n'est cassé,
+> la requête n'a simplement jamais atteint une route.
 
 ## 🧪 Scénario — supprimer un namespace avec ses données Longhorn, et le récupérer
 
@@ -379,7 +473,11 @@ kubectl delete namespace demo-backup
 | Sauvegarde en `PartiallyFailed`, un `PodVolumeBackup` en `Failed` | un volume que l'agent ne peut pas lire (hostPath, volume non monté) | `kubectl -n velero get podvolumebackups -o wide`, puis les logs du pod concerné |
 | Tout tombe en 403 après une réinstallation de MinIO | MinIO a perdu l'utilisateur `velero`, le Secret porte encore l'ancienne clé | supprimer le Secret et relancer : `kubectl -n velero delete secret velero-s3 && ./velero/velero-up.sh <distro>` |
 | L'envoi échoue sur une erreur de checksum/signature | certaines implémentations S3 rejettent le checksum par défaut du SDK | ajouter `checksumAlgorithm: ""` au bloc `config:` de `values.yaml` ([README du plugin](https://github.com/vmware-tanzu/velero-plugin-for-aws#compatibility)) |
-| `velero: command not found` | la CLI est optionnelle et pas installée | utiliser les formes `kubectl` ci-dessus, ou l'installer (voir Références) |
+| `velero: command not found` | la CLI est optionnelle et pas installée | utiliser les formes `kubectl` ci-dessus, l'UI, ou l'installer (voir Références) |
+| Le login de l'UI rend **500**, pas 401 | le mot de passe est faux. La basic auth l'a rejeté, puis l'application est retombée sur sa stratégie LDAP, non configurée (`LDAP server URL not defined`) | relire le mot de passe : `kubectl -n velero get secret velero-ui-auth -o jsonpath='{.data.password}' \| base64 -d` |
+| `https://velero.<LAB_DOMAIN>` expire ou rend `000` | pas de SNI (IP nue), ou le wildcard ne résout pas chez vous | `curl --resolve velero.<LAB_DOMAIN>:443:192.168.56.200 …` ; vérifier `kubectl -n velero get httproute velero-ui` |
+| Aucune `httproute` dans `velero` | la Gateway API n'était pas installée au passage du script — il a prévenu et continué | installer la plateforme, puis relancer `./velero/velero-up.sh <distro>` |
+| L'UI n'affiche aucune sauvegarde alors que `kubectl` en voit | elle surveille un autre namespace | `kubectl -n velero get deploy velero-ui -o jsonpath='{range .spec.template.spec.containers[0].env[?(@.name=="VELERO_NAMESPACE")]}{.value}{end}'` |
 
 ## ⚠️ Pièges
 
@@ -430,7 +528,19 @@ kubectl delete namespace demo-backup
   mc cp labminio/velero/backups/<backup>/<backup>-results.gz - | gunzip | python3 -m json.tool
   ```
 - **`velero backup delete` supprime aussi les objets du bucket** ; `kubectl delete backup` ne
-  supprime que l'objet Kubernetes et laisse le tarball orphelin dans MinIO.
+  supprime que l'objet Kubernetes et laisse le tarball orphelin dans MinIO. Le bouton de
+  suppression de l'UI est celui de `velero` — il vide l'entrée du bucket aussi.
+- **L'UI est `cluster-admin` derrière un seul mot de passe.** Elle restaure des objets
+  arbitraires dans des namespaces arbitraires, donc elle ne peut pas l'être moins ; c'est la même
+  raison qui donne ces droits au ServiceAccount de Velero. Ce qu'il faut retenir, c'est la
+  conséquence : qui atteint `velero.<LAB_DOMAIN>` et devine le mot de passe possède le cluster.
+  Le mot de passe est généré (24 caractères aléatoires), jamais `admin/admin` — le défaut
+  documenté du chart, que cet addon écrase. `VELERO_UI=false` supprime la surface entièrement.
+- **Supprimer le Secret `velero-ui-auth` ne déconnecte personne.** Les JWT déjà émis restent
+  valides jusqu'à leur expiration (1 h par défaut), parce qu'ils sont vérifiés contre la
+  passphrase, pas contre le Secret. Pour vraiment couper l'accès, faites tourner les **deux** :
+  supprimez le Secret et relancez le script — la nouvelle passphrase invalide tous les jetons en
+  circulation.
 - **Les TTL sont de 48 h (horaire) et 7 jours (quotidien).** Un lab éteint quinze jours revient
   avec un bucket vide — le GC tourne sur l'horloge de Velero, pas sur le besoin qu'on avait de
   cette sauvegarde.
@@ -443,11 +553,17 @@ kubectl delete namespace demo-backup
 
 ```bash
 kubectl delete -f velero/schedule.yaml
+helm uninstall velero-ui -n velero       # l'UI seule, pour continuer à sauvegarder sans tableau de bord
 helm uninstall velero -n velero
 kubectl delete namespace velero          # emporte les CR ; les CRD survivent
 kubectl get crd | sed -n '/velero.io/p' | awk '{print $1}' | xargs -r kubectl delete crd
 # Le bucket n'est PAS supprimé : mc rb --force labminio/velero
 ```
+
+> ℹ️ Le binding `cluster-admin` de l'UI est un objet **cluster-scoped** : supprimer le namespace
+> ne l'emporte pas. `helm uninstall` le retire bien — vérifiez qu'il est parti, c'est l'objet
+> dont parle le piège sur le chemin d'escalade :
+> `kubectl get clusterrolebinding velero-ui`.
 
 ## 📚 Références
 
@@ -455,5 +571,6 @@ kubectl get crd | sed -n '/velero.io/p' | awk '{print $1}' | xargs -r kubectl de
 - [Velero — Backup reference](https://velero.io/docs/v1.18/backup-reference/) · [Restore reference](https://velero.io/docs/v1.18/restore-reference/)
 - [Velero — Install the CLI](https://velero.io/docs/v1.18/basic-install/#install-the-cli)
 - [velero-plugin-for-aws](https://github.com/vmware-tanzu/velero-plugin-for-aws) — la matrice de versions et les notes sur les providers S3-compatibles
+- [Velero UI (otwld)](https://velero-ui.docs.otwld.com/) — le tableau de bord · [variables d'environnement](https://velero-ui.docs.otwld.com/getting-started/environment-variables) · [otwld/velero-ui](https://github.com/otwld/velero-ui)
 - [`../minio-s3/cluster/LISEZ-MOI.md`](../minio-s3/cluster/LISEZ-MOI.md) — la cible de sauvegarde
 - [`../longhorn/LISEZ-MOI.md`](../longhorn/LISEZ-MOI.md) — les volumes dont les données finissent dans le bucket

@@ -1,0 +1,24 @@
+# Exposes the Velero UI over HTTPS at `velero.lab.example.io`, behind `main-gateway` (Envoy
+# Gateway). TLS is the `*.lab.example.io` wildcard already carried by the `https` listener — no
+# Certificate to create.
+#
+# The route lives in the `velero` namespace but attaches to the Gateway of the
+# `envoy-gateway-system` namespace: possible because `main-gateway` opens its listeners to
+# `from: All`. Backend in the same namespace as the route → no ReferenceGrant.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: velero-ui
+  namespace: velero
+spec:
+  parentRefs:
+    - name: main-gateway
+      namespace: envoy-gateway-system
+      sectionName: https          # targets the TLS :443 listener
+  hostnames:
+    - velero.lab.example.io       # matches the *.lab.example.io wildcard
+  rules:
+    - backendRefs:
+        # The UI and its API are one container — plain HTTP (3000), Envoy does the HTTPS.
+        - name: velero-ui
+          port: 3000

@@ -29,13 +29,21 @@
 # storage-agnostic, so `longhorn`, `longhorn-r1` and `local-path` are all covered by the same
 # setup.
 #
-# The MinIO endpoint is the in-cluster Service. Backup traffic therefore never goes through
-# main-gateway, needs no LoadBalancer IP and no DNS record: the component behaves identically
-# whether the LoadBalancer IPs come from Cilium's L2 announcer or from MetalLB.
+# The MinIO endpoint is the in-cluster Service. BACKUP traffic therefore never goes through
+# main-gateway, needs no LoadBalancer IP and no DNS record: the backup half of this component
+# behaves identically whether the LoadBalancer IPs come from Cilium's L2 announcer or from
+# MetalLB — and it keeps working when neither is installed.
+#
+# THE UI, on the other hand, is a web dashboard and does need to be reachable: velero-ui (otwld)
+# is installed in the same namespace and exposed at velero.$LAB_DOMAIN through main-gateway,
+# like every other UI here. It is the reason a restore stops being a CLI-only exercise. Set
+# VELERO_UI=false to skip it entirely; when the Gateway API is not installed the route is
+# skipped on its own and the rest still installs.
 #
 # Prerequisites: a MinIO in the cluster (`minio-cluster` preferred, `minio-s3` accepted),
 #                kubectl + helm + curl + openssl. `mc` is downloaded if it is not in PATH; the
-#                `velero` CLI is OPTIONAL (everything here is plain CRDs).
+#                `velero` CLI is OPTIONAL (everything here is plain CRDs — even more so now that
+#                the UI covers browsing and restoring).
 # Idempotent: `helm upgrade --install` + `kubectl apply`, and the MinIO user keeps its existing
 # access key. Safe to re-run.
 set -euo pipefail
@@ -48,10 +56,13 @@ k8s_init "$@"
 # --- Pinned versions (overridable through environment variables) -------------
 VELERO_VERSION="${VELERO_VERSION:-12.1.0}"                  # chart (app v1.18.1)
 VELERO_AWS_PLUGIN_VERSION="${VELERO_AWS_PLUGIN_VERSION:-v1.14.2}"  # plugin v1.14.x <-> Velero v1.18.x
+VELERO_UI_VERSION="${VELERO_UI_VERSION:-0.15.0}"            # chart otwld/velero-ui (app 0.10.2)
 
 NS="${VELERO_NS:-velero}"
 VELERO_BUCKET="${VELERO_BUCKET:-velero}"
 S3_USER="${VELERO_S3_USER:-velero}"
+VELERO_UI="${VELERO_UI:-true}"                              # false: back up, no dashboard
+VELERO_UI_USER="${VELERO_UI_USER:-admin}"
 
 # --- Prerequisites -----------------------------------------------------------
 need kubectl helm curl openssl
@@ -99,7 +110,7 @@ trap cleanup EXIT
 distro_summary
 
 # ============================================================================
-log "[1/4] Namespace ${NS} (PodSecurity privileged)"
+log "[1/5] Namespace ${NS} (PodSecurity privileged)"
 # The node-agent mounts the kubelet's pod directory (hostPath) to reach the volume data.
 # PodSecurity `baseline` FORBIDS hostPath volumes, so on Talos — where baseline is enforced
 # cluster-wide — this label is what stands between a working DaemonSet and a silent refusal
@@ -114,7 +125,7 @@ kubectl label namespace "$NS" \
 echo "    ${NS} labelled privileged (node-agent needs hostPath; cluster default: ${PODSECURITY_DEFAULT})"
 
 # ============================================================================
-log "[2/4] MinIO (${MINIO_NS}): bucket ${VELERO_BUCKET} + dedicated user ${S3_USER}"
+log "[2/5] MinIO (${MINIO_NS}): bucket ${VELERO_BUCKET} + dedicated user ${S3_USER}"
 # A DEDICATED user rather than the MinIO root: a backup agent that can read every bucket of
 # the lab is a strange thing to hand a cluster-admin ServiceAccount.
 ROOTPW="$(kubectl -n "$MINIO_NS" get secret minio-creds -o jsonpath='{.data.root-password}' | base64 -d)"
@@ -175,7 +186,7 @@ kubectl -n "$NS" create secret generic velero-s3 \
 echo "    Secret ${NS}/velero-s3 (key 'cloud') up to date"
 
 # ============================================================================
-log "[3/4] Velero chart ${VELERO_VERSION} -> ${S3_URL}/${VELERO_BUCKET}"
+log "[3/5] Velero chart ${VELERO_VERSION} -> ${S3_URL}/${VELERO_BUCKET}"
 helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts >/dev/null 2>&1 || true
 helm repo update vmware-tanzu >/dev/null
 # values.yaml carries the DEFAULT endpoint (minio-cluster) and the pinned plugin tag; we
@@ -208,8 +219,58 @@ done
   || warn "BackupStorageLocation 'default' is '${PHASE:-<none>}' — kubectl -n ${NS} logs deploy/velero | tail -30"
 
 # ============================================================================
-log "[4/4] Schedules: hourly objects + daily objects-and-volumes"
+log "[4/5] Schedules: hourly objects + daily objects-and-volumes"
 kubectl apply -f "${HERE}/schedule.yaml"
+
+# ============================================================================
+if [ "$VELERO_UI" = "true" ]; then
+  log "[5/5] Velero UI ${VELERO_UI_VERSION} (velero.${LAB_DOMAIN})"
+
+  # Same idempotency rule as the MinIO key above, for the same reason: a password regenerated on
+  # every run is a password nobody can write down. Read it back when the Secret is there, mint
+  # it only the first time.
+  UI_PASS=""; UI_PHRASE=""
+  if kubectl -n "$NS" get secret velero-ui-auth >/dev/null 2>&1; then
+    UI_PASS="$(kubectl -n "$NS" get secret velero-ui-auth -o jsonpath='{.data.password}' | base64 -d)"
+    UI_PHRASE="$(kubectl -n "$NS" get secret velero-ui-auth -o jsonpath='{.data.pass_phrase}' | base64 -d)"
+  fi
+  # `tr -d` then `cut`: the base64 alphabet contains / and + and the value travels through YAML,
+  # a shell variable and an HTTP form before it is compared.
+  [ -n "$UI_PASS" ]   || UI_PASS="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
+  [ -n "$UI_PHRASE" ] || UI_PHRASE="$(openssl rand -hex 32)"
+  kubectl -n "$NS" create secret generic velero-ui-auth \
+    --from-literal=username="$VELERO_UI_USER" \
+    --from-literal=password="$UI_PASS" \
+    --from-literal=pass_phrase="$UI_PHRASE" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  echo "    Secret ${NS}/velero-ui-auth (username / password / pass_phrase) up to date"
+
+  helm repo add otwld https://helm.otwld.com/ >/dev/null 2>&1 || true
+  helm repo update otwld >/dev/null
+  UI_VALUES="$(mktemp)"
+  # ui-values.yaml pins `veleroNamespace: velero`; VELERO_NS may say otherwise.
+  sed -e "s#^\( *veleroNamespace: \).*#\1\"${NS}\"#" "${HERE}/ui-values.yaml" > "$UI_VALUES"
+  helm upgrade --install velero-ui otwld/velero-ui \
+    --namespace "$NS" \
+    --version "${VELERO_UI_VERSION}" \
+    --values "$UI_VALUES" \
+    --wait --timeout 5m
+  rm -f "$UI_VALUES"
+  kubectl -n "$NS" rollout status deploy/velero-ui --timeout=300s
+
+  # Same ordering guard as ../cilium/cilium-up.sh: without the Gateway API CRDs the apply would
+  # fail on `no matches for kind "HTTPRoute"` and take the whole install down with it — for a
+  # route, on a component whose backups do not need one.
+  if kubectl get crd httproutes.gateway.networking.k8s.io >/dev/null 2>&1; then
+    render "${HERE}/ui-httproute.yaml" | kubectl apply -f -
+  else
+    warn "Gateway API not installed: no route created. The UI is reachable with
+        kubectl -n ${NS} port-forward deploy/velero-ui 3000:3000
+        Install the platform (./install.sh ${K8S_DISTRO} platform), then re-run this script."
+  fi
+else
+  log "[5/5] Velero UI skipped (VELERO_UI=false)"
+fi
 
 # ============================================================================
 log "Velero installed."
@@ -219,6 +280,12 @@ echo "  Schedules  : hourly-objects  '0 * * * *'  objects only,      TTL 48h"
 echo "               daily-full      '0 2 * * *'  objects + PV data, TTL 168h"
 echo "               (kubectl -n ${NS} get schedules)"
 echo "  Access key : kubectl -n ${NS} get secret velero-s3 -o jsonpath='{.data.cloud}' | base64 -d"
+if [ "$VELERO_UI" = "true" ]; then
+echo
+echo "  UI         : https://velero.${LAB_DOMAIN}   (user: ${VELERO_UI_USER})"
+echo "  Password   : kubectl -n ${NS} get secret velero-ui-auth -o jsonpath='{.data.password}' | base64 -d ; echo"
+echo "  Test       : curl --resolve velero.${LAB_DOMAIN}:443:192.168.56.200 https://velero.${LAB_DOMAIN}/"
+fi
 echo
 echo "  Backup now : velero backup create manual-1 --wait          (CLI)"
 echo "               a Backup object does the same without the CLI — see velero/README.md"
@@ -226,5 +293,6 @@ echo "  Follow it  : kubectl -n ${NS} get backups.velero.io,podvolumebackups"
 echo "               ('backups' alone hits Longhorn's CRD of the same name — see the README)"
 echo "  Health     : kubectl -n ${NS} get backupstoragelocation default"
 echo
-echo "  /!\\ The 'velero' CLI is optional here, but a restore without it is painful:"
+echo "  /!\\ The UI can browse, create and RESTORE backups: its ServiceAccount is cluster-admin."
+echo "      The 'velero' CLI stays useful for scripted restores and for backup logs:"
 echo "      https://velero.io/docs/v1.18/basic-install/#install-the-cli"
