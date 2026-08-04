@@ -1,0 +1,6 @@
+# Mattermost's namespace. No PodSecurity label needed: the server and PostgreSQL both run
+# unprivileged, unlike the observability stack (node-exporter/Alloy need `privileged`).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mattermost

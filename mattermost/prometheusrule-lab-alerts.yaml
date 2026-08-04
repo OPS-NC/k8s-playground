@@ -1,0 +1,107 @@
+# Lab alert rules — deliberately FASTER than the ones kube-prometheus-stack ships.
+#
+# WHY these exist at all: kubernetes-mixin (bundled with kube-prometheus-stack) already defines
+# ~150 excellent rules, KubePodCrashLooping / KubeNodeNotReady / NodeCPUHighUsage /
+# NodeMemoryHighUtilization included. They are calibrated for PRODUCTION: `for: 15m` to `30m`,
+# and NodeCPUHighUsage sits at `severity: info`. In a lab you want the alert within 1-5 minutes,
+# otherwise nobody ever sees one during a session.
+#
+# The `Lab` prefix guarantees no collision: the mixin rules stay active alongside these.
+#
+# WHY thresholds at 85 % and not 90 %: on a lab the control plane runs everything, and 90 %
+# is reached only just before the OOM. 85 % still leaves time to react.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: lab-alerts
+  namespace: monitoring
+  labels:
+    app: lab-alerts
+    role: alert-rules
+spec:
+  groups:
+    - name: lab.pods
+      rules:
+        # `kube_pod_container_status_waiting_reason` is a SPARSE series: kube-state-metrics only
+        # emits it while the container actually sits in Waiting. A fast-restarting container is
+        # often scraped in `terminated` instead, so an instant query misses it — hence
+        # max_over_time() over 5 min, which catches any single scrape in the window.
+        - alert: LabPodCrashLooping
+          expr: |
+            max_over_time(kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff",job="kube-state-metrics"}[5m]) >= 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod in CrashLoopBackOff: {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "Container {{ $labels.container }} of pod {{ $labels.namespace }}/{{ $labels.pod }} has been restarting in a loop for more than 2 min."
+
+        # Jobs are excluded on purpose: a Job pod is legitimately Pending/Failed between runs,
+        # and Trivy's scan jobs alone would fire this every few minutes.
+        - alert: LabPodNotReady
+          expr: |
+            sum by (namespace, pod) (
+              max by (namespace, pod) (
+                kube_pod_status_phase{job="kube-state-metrics",phase=~"Pending|Unknown|Failed"}
+              ) * on (namespace, pod) group_left() max by (namespace, pod) (
+                kube_pod_owner{job="kube-state-metrics",owner_kind!="Job"}
+              )
+            ) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod not Ready for 5 min: {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been Pending/Unknown/Failed for more than 5 min."
+
+    - name: lab.nodes
+      rules:
+        - alert: LabNodeNotReady
+          expr: |
+            kube_node_status_condition{job="kube-state-metrics",condition="Ready",status="true"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node NOT Ready: {{ $labels.node }}"
+            description: "Node {{ $labels.node }} has not been Ready for more than 2 min."
+
+        # `steal` is excluded on top of idle/iowait: these are VirtualBox VMs on an
+        # oversubscribed host, and steal time is the hypervisor's doing, not the node's.
+        - alert: LabNodeCPUHigh
+          expr: |
+            sum without(mode) (avg without (cpu) (
+              rate(node_cpu_seconds_total{job="node-exporter",mode!~"idle|iowait|steal"}[5m])
+            )) * 100 > 85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node CPU > 85%: {{ $labels.instance }}"
+            description: "CPU at {{ printf \"%.0f\" $value }}% on {{ $labels.instance }} for 5 min."
+
+        # MemAvailable, not MemFree: the page cache is reclaimable, so MemFree would fire
+        # permanently on a healthy node.
+        - alert: LabNodeMemoryHigh
+          expr: |
+            100 - (node_memory_MemAvailable_bytes{job="node-exporter"}
+                   / node_memory_MemTotal_bytes{job="node-exporter"} * 100) > 85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node RAM > 85%: {{ $labels.instance }}"
+            description: "Memory used at {{ printf \"%.0f\" $value }}% on {{ $labels.instance }} for 5 min."
+
+        # Only the root filesystem: Longhorn mounts dozens of ephemeral volumes whose fill level
+        # is the workloads' business, not the node's health.
+        - alert: LabNodeDiskAlmostFull
+          expr: |
+            node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint="/"}
+            / node_filesystem_size_bytes{job="node-exporter",fstype!="",mountpoint="/"} * 100 < 15
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Disk / below 15% free: {{ $labels.instance }}"
+            description: "{{ printf \"%.0f\" $value }}% space left on / of {{ $labels.instance }}."

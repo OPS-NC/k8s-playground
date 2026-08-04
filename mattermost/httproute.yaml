@@ -1,0 +1,19 @@
+# Mattermost exposed through the Gateway API — this lab uses no Ingress controller.
+# The `https` listener of main-gateway carries the *.lab.example.io wildcard certificate;
+# `render` (lib/common.sh) substitutes the real domain at apply time.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mattermost
+  namespace: mattermost
+spec:
+  parentRefs:
+    - name: main-gateway
+      namespace: envoy-gateway-system
+      sectionName: https
+  hostnames:
+    - mattermost.lab.example.io
+  rules:
+    - backendRefs:
+        - name: mattermost-team-edition
+          port: 8065

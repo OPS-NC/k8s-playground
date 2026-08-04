@@ -1,0 +1,65 @@
+# values.yaml — Mattermost Team Edition (the free, self-hosted community edition).
+#
+# WHY an external PostgreSQL instead of the chart's bundled MySQL: Mattermost v11 REMOVED the
+# MySQL driver from its codebase. The chart still ships `mysql.enabled: true` by default, which
+# builds `MM_CONFIG=mysql://…`; v11 no longer recognises that as a database DSN, falls back to
+# treating it as a FILE PATH and dies on:
+#   failed to load configuration: could not create config file:
+#   open /mattermost/config/mysql:/mattermost:<pwd>@tcp(...): no such file or directory
+# (the `//` collapses to `/` because the string goes through path cleaning — that mangled path in
+# the error is the tell). So: bundled MySQL off, CloudNativePG cluster on.
+#
+# WHY no Ingress: this lab exposes everything through the Gateway API. `httproute.yaml` carries
+# the exposure; the chart's ingress stays off.
+
+image:
+  imagePullPolicy: IfNotPresent
+
+# `longhorn-r1` (1 block replica) and not `longhorn`: lab data. The 3-way replication of the
+# default class would triple the footprint on the shared OS disk for no benefit here.
+persistence:
+  data:
+    enabled: true
+    size: 5Gi
+    storageClass: longhorn-r1
+    accessMode: ReadWriteOnce
+  plugins:
+    enabled: true
+    size: 1Gi
+    storageClass: longhorn-r1
+    accessMode: ReadWriteOnce
+
+mysql:
+  enabled: false
+
+# The chart composes `MM_CONFIG = "<externalDriverType>://<externalConnectionString>"`, so the
+# connection string carries everything AFTER the scheme. `mattermost-up.sh` substitutes
+# @@PGPASSWORD@@ with the password CloudNativePG generated in the `mattermost-db-app` secret:
+# the password never lands in a versioned file.
+externalDB:
+  enabled: true
+  externalDriverType: postgres
+  externalConnectionString: "mmuser:@@PGPASSWORD@@@mattermost-db-rw:5432/mattermost?sslmode=disable&connect_timeout=10"
+
+# Envoy terminates the TLS, so Mattermost only ever sees plain HTTP. SiteURL MUST be the https
+# URL: it is what Mattermost builds its own links and its incoming-webhook URLs from, and a wrong
+# value breaks the webhooks and the permalinks.
+config:
+  MM_PLUGINSETTINGS_CLIENTDIRECTORY: "./client/plugins"
+  MM_SERVICESETTINGS_SITEURL: "https://mattermost.lab.example.io"
+  # Required for the Alertmanager integration: the receiver posts to an incoming webhook.
+  MM_SERVICESETTINGS_ENABLEINCOMINGWEBHOOKS: "true"
+  # Let the webhook payload override the poster's name/icon, so alerts show up as
+  # "alertmanager" rather than as the account that created the hook.
+  MM_SERVICESETTINGS_ENABLEPOSTUSERNAMEOVERRIDE: "true"
+  MM_SERVICESETTINGS_ENABLEPOSTICONOVERRIDE: "true"
+
+ingress:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 150m
+    memory: 512Mi
+  limits:
+    memory: 1500Mi

@@ -1,0 +1,39 @@
+# Mattermost's PostgreSQL database, through CloudNativePG (the cnpg/ add-on).
+#
+# WHY PostgreSQL and not the chart's bundled MySQL: Mattermost v11 removed the MySQL driver
+# outright (see values.yaml). PostgreSQL 14+ is the only supported engine.
+#
+# Same conventions as the keycloak/ database so both look alike in the lab: one instance, PG 18,
+# `longhorn-r1`, and NO superuser account (the app owner is enough — one less credential lying
+# around). CloudNativePG generates the owner's password into the `mattermost-db-app` secret;
+# `mattermost-up.sh` reads it from there, so no password is ever versioned.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: mattermost-db
+  namespace: mattermost
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+  primaryUpdateStrategy: unsupervised
+  enableSuperuserAccess: false
+  bootstrap:
+    initdb:
+      database: mattermost
+      owner: mmuser
+      encoding: UTF8
+      # Mattermost sorts and compares in the application, not in the database: a `C` collation
+      # is both faster and immune to the index corruption a glibc collation change can cause
+      # across a PostgreSQL major upgrade.
+      localeCollate: C
+      localeCType: C
+  storage:
+    size: 5Gi
+    storageClass: longhorn-r1
+    resizeInUseVolumes: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 768Mi

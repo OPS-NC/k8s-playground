@@ -1,0 +1,54 @@
+# Alertmanager -> Mattermost routing, as an AlertmanagerConfig CRD.
+#
+# WHY `slackConfigs` for Mattermost: Mattermost's incoming webhooks are Slack-COMPATIBLE. They
+# accept the very payload Alertmanager's Slack integration sends (text + attachments), so no
+# plugin, no bridge, no custom receiver is needed. The same block works for Slack itself — only
+# the webhook URL changes (see the README for Slack and Microsoft Teams).
+#
+# ⚠️ REQUIRES on the Alertmanager CR: `spec.alertmanagerConfigMatcherStrategy.type: None`
+#    (mattermost-up.sh patches it). With the default `OnNamespace`, prometheus-operator injects a
+#    `namespace="monitoring"` matcher into the route generated from this CRD. NODE alerts
+#    (LabNodeNotReady, LabNodeCPUHigh, LabNodeMemoryHigh…) carry NO `namespace` label, so they
+#    would match nothing and NEVER be delivered — a silent failure that looks like "alerting
+#    works" because the pod alerts do arrive.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: mattermost
+  namespace: monitoring
+spec:
+  route:
+    receiver: mattermost
+    groupBy: ["alertname", "namespace"]
+    # 30s is enough to bundle the alerts of one incident without delaying the first message.
+    groupWait: 30s
+    groupInterval: 5m
+    # 4h and not the 12h default: on a lab you want the reminder within a working session.
+    repeatInterval: 4h
+    routes:
+      # `severity: none` is Alertmanager's own plumbing, ALWAYS firing by design: Watchdog (the
+      # heartbeat that proves the pipeline is alive) and InfoInhibitor (exists only to inhibit
+      # info alerts). Matching on the severity rather than on the two alertnames also covers
+      # any future one.
+      - receiver: "null"
+        matchers:
+          - name: severity
+            value: none
+  receivers:
+    - name: "null"
+    - name: mattermost
+      slackConfigs:
+        # The URL lives in a Secret that mattermost-up.sh builds from the incoming webhook it
+        # creates: it must never be versioned (it is a write credential to the channel).
+        - apiURL:
+            name: mattermost-webhook
+            key: url
+          channel: "alertes-k8s"
+          sendResolved: true
+          title: '{{ if eq .Status "firing" }}🔴{{ else }}✅{{ end }} [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}'
+          text: |-
+            {{ range .Alerts -}}
+            *{{ .Annotations.summary }}*
+            {{ .Annotations.description }}
+            _severity_: `{{ .Labels.severity }}`{{ if .Labels.namespace }} · _ns_: `{{ .Labels.namespace }}`{{ end }}{{ if .Labels.node }} · _node_: `{{ .Labels.node }}`{{ end }}{{ if .Labels.instance }} · _instance_: `{{ .Labels.instance }}`{{ end }}
+            {{ end }}

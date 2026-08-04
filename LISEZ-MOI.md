@@ -329,6 +329,7 @@ d'environnement.
 | kube-prometheus-stack | `prometheus-community/…` | `88.0.1` (op. v0.93.0) | `observability/observability-up.sh` | `KPS_VERSION` |
 | Loki | `grafana/loki` | `7.2.0` (app 3.6.11) | idem | `LOKI_VERSION` |
 | Alloy | `grafana/alloy` | `1.11.0` (app v1.18.0) | idem | `ALLOY_VERSION` |
+| Mattermost Team Edition | `mattermost/mattermost-team-edition` | `6.6.104` (app 11.9.0) | `mattermost/mattermost-up.sh` | `MATTERMOST_CHART_VERSION` |
 | node-problem-detector | `deliveryhero/…` | `2.3.14` (app v0.8.19) | `node-problem-detector/…-up.sh` | `NPD_VERSION` |
 | Kyverno | `kyverno/kyverno` | `3.8.2` (app v1.18.2) | `kyverno/kyverno-up.sh` | `KYVERNO_VERSION` |
 | Policy Reporter | `policy-reporter/policy-reporter` | `3.9.1` | `kyverno/`, `trivy-operator/` | `POLICY_REPORTER_VERSION` |
@@ -397,6 +398,7 @@ lever toute ambiguïté, mais il est optionnel dans les deux dispositions.
 | Dossier | Rôle | Commande | Prérequis |
 |---|---|---|---|
 | [`observability/`](observability/LISEZ-MOI.md) | Prometheus + Grafana + Alertmanager + Loki + Alloy | `./install.sh <distro> observability` | SC `longhorn-r1`, CP ≥ 4 Go |
+| [`mattermost/`](mattermost/LISEZ-MOI.md) | chat Mattermost + **alertes Alertmanager dans un canal** | `./install.sh <distro> mattermost` | `observability`, `cnpg`, SC `longhorn-r1` |
 | [`node-problem-detector/`](node-problem-detector/LISEZ-MOI.md) | santé des nodes (noyau) | `./install.sh <distro> npd` | — |
 | [`chaos-kube/`](chaos-kube/LISEZ-MOI.md) | chaos : supprime **1 pod au hasard par heure** | `./install.sh <distro> chaos` | — |
 
