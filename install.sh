@@ -42,6 +42,7 @@ CATALOGUE=(
   "vault|vault-cluster/vault-up.sh|HashiCorp Vault HA (Raft) + HTTPS UI"
   "vso|vault-secret-operator/vso-up.sh|Vault Secrets Operator (the operator ONLY, see its README)"
   "observability|observability/observability-up.sh|kube-prometheus-stack + Loki + Alloy"
+  "mattermost|mattermost/mattermost-up.sh|Mattermost (chat) + Alertmanager alerts in a channel"
   "npd|node-problem-detector/node-problem-detector-up.sh|node-problem-detector (node health)"
   "kyverno|kyverno/kyverno-up.sh|Kyverno + Policy Reporter (policies in Audit)"
   "trivy|trivy-operator/trivy-operator-up.sh|Trivy Operator (CVEs, config, secrets, RBAC)"

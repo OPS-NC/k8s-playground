@@ -162,7 +162,7 @@ GROUPS: list[tuple[dict[str, str], str, list[str]]] = [
     ({"en": "Secrets",       "fr": "Secrets"},           "🔐",
      ["vault-cluster", "vault-secret-operator"]),
     ({"en": "Observability", "fr": "Observabilité"},     "👁️",
-     ["observability", "node-problem-detector", "chaos-kube"]),
+     ["observability", "mattermost", "node-problem-detector", "chaos-kube"]),
     ({"en": "Security",      "fr": "Sécurité"},          "🛡️", ["kyverno", "trivy-operator"]),
     ({"en": "Demos",         "fr": "Démos"},             "🧪", ["argocd", "wordpress-example"]),
 ]
@@ -189,6 +189,7 @@ EMOJIS: dict[str, str] = {
     "keycloak/README.md":                    "🛂",
     "dex/README.md":                         "🪪",
     "observability/README.md":               "📈",
+    "mattermost/README.md":                  "💬",
     "node-problem-detector/README.md":       "🩺",
     "chaos-kube/README.md":                  "🐒",
     "kyverno/README.md":                     "⚖️",

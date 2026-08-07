@@ -213,8 +213,10 @@ No cluster is required. A task is not finished until `make validate` passes.
 - **Language**: code and script comments in **English**; `README.md` in **English**,
   `LISEZ-MOI.md` in **French**. French is confined to the FR mirrors and to the French UI
   strings of `docs/build.py`.
-- **Commits**: `[Claude] <type>: <description>` — `fix`, `feat`, `refactor`, `docs`, `chore`,
-  `perf`, `test`. The message is written in French.
+- **Commits**: `<type>(<scope>): <description>` — `fix`, `feat`, `refactor`, `docs`, `chore`,
+  `perf`, `test`. **The message is written in English**, subject and body, like every other
+  non-documentation artefact of this repository. This rule used to ask for French and for a
+  `[Claude]` prefix; neither matched what the history actually contains, and both are dropped.
 - **Shell**: `set -euo pipefail` everywhere. Never a `grep` whose failure is normal (under
   `pipefail` + `set -e` it kills the script) — use `sed -n 's///p'` or end with `|| true`.
 - **No `sudo`** in the scripts.
